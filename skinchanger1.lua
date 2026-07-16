@@ -99,15 +99,12 @@ local function robust_require(module)
         return (getrenv()._G[mName] or getrenv().shared[mName])
     end
 
-    local old_identity
-    pcall(function() if getidentity and setidentity then old_identity = getidentity() setidentity(2) end end)
-    -- Use pcall to silently swallow the "Cannot require from non-RobloxScript context" error
+    -- NOTE: setidentity intentionally removed — bleeds into game coroutines and breaks game requires
     local success, result = pcall(function() return require(module) end)
     if not success and getgenv and getgenv().require then
         local ok, res = pcall(function() return getgenv().require(module) end)
         if ok then success, result = true, res end
     end
-    pcall(function() if setidentity and old_identity then setidentity(old_identity) end end)
     if success then return result end
 
     local getupvalues = debug.getupvalues or getupvalues
