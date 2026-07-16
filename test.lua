@@ -1007,39 +1007,112 @@ VisualTab:CreateSlider({
 local SC = nil
 local scInitialized = false
 
--- Skin changer loads only when user clicks the button (not at startup)
--- Uses changer2 (Axiom rebuild) — hooks DataController + ViewModel for real skin injection
+-- Skin changer loads only when user clicks the button
+-- changer1 swaps ViewModels directly — no require() needed, works on all executors
 local function loadSkinChanger(callback)
     if SC then
         if callback then callback(true) end
         return
     end
     task.spawn(function()
-        local ok, err = pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/changer2.lua"))()
+        local ok, result = pcall(function()
+            return loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/changer1.lua"))()
         end)
-        SC = ok  -- use SC as a boolean flag: true = loaded
-        if callback then callback(ok) end
-        if not ok then
-            warn("[SkinChanger] Failed to load: " .. tostring(err))
+        if ok and type(result) == "table" then
+            SC = result  -- SC is now the module table with .skinOptions, .applySkin, .resetSkin
+        else
+            SC = nil
+            warn("[SkinChanger] Failed to load: " .. tostring(result))
         end
+        if callback then callback(SC ~= nil) end
     end)
 end
 
 local SkinTab = Window:CreateTab("Skin Changer", 4483362458)
 
-SkinTab:CreateSection("Unlock All Skins")
+-- Sorted weapon list
+local scWeaponNames = {
+    "Assault Rifle","Battle Axe","Bow","Burst Rifle","Chainsaw","Crossbow","Daggers",
+    "Distortion","Energy Pistols","Energy Rifle","Exogun","Fists","Flamethrower",
+    "Flare Gun","Flashbang","Freeze Ray","Grenade","Grenade Launcher","Gunblade",
+    "Handgun","Katana","Knife","Medkit","Minigun","Molotov","Paintball Gun",
+    "Revolver","Riot Shield","RPG","Satchel","Scythe","Shotgun","Slingshot",
+    "Smoke Grenade","Sniper","Subspace Tripmine","Trowel","Uzi","War Horn",
+    "Warper","Warpstone",
+}
+local scSelectedWeapon = scWeaponNames[1]
 
-SkinTab:CreateLabel("Hooks Rivals' cosmetic system to unlock all skins. Use the in-game equip menu after loading.", 4483362458, Color3.fromRGB(180, 180, 180), false)
+SkinTab:CreateSection("Weapon Skins")
+SkinTab:CreateLabel("Swaps ViewModels client-side. Works on all executors. Only you see the change.", 4483362458, Color3.fromRGB(160, 160, 160), false)
+
+SkinTab:CreateDropdown({
+    Name            = "Select Weapon",
+    Options         = scWeaponNames,
+    CurrentOption   = {scWeaponNames[1]},
+    MultipleOptions = false,
+    Flag            = "SC_Weapon",
+    Callback        = function(Value)
+        scSelectedWeapon = Value
+    end,
+})
 
 SkinTab:CreateButton({
-    Name     = "Load Skin Unlocker (Axiom)",
+    Name     = "Show Available Skins",
+    Callback = function()
+        if not SC then
+            Rayfield:Notify({ Title = "Skin Changer", Content = "Load the skin module first.", Duration = 3 })
+            return
+        end
+        local skins = SC.skinOptions[scSelectedWeapon]
+        if not skins then
+            Rayfield:Notify({ Title = scSelectedWeapon, Content = "No custom skins available.", Duration = 3 })
+            return
+        end
+        Rayfield:Notify({ Title = scSelectedWeapon .. " Skins", Content = table.concat(skins, ", "):sub(1, 200), Duration = 8 })
+    end,
+})
+
+SkinTab:CreateInput({
+    Name                     = "Skin Name (exact)",
+    PlaceholderText          = "e.g. AK-47, Karambit, Saber",
+    RemoveTextAfterFocusLost = false,
+    Flag                     = "SC_SkinInput",
+    Callback                 = function(Value)
+        if not SC then
+            -- auto-load on first use
+            Rayfield:Notify({ Title = "Skin Changer", Content = "Loading skin module...", Duration = 3 })
+            loadSkinChanger(function(ok)
+                if ok then
+                    local success = SC.applySkin(scSelectedWeapon, Value)
+                    Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. Value) or "Skin/weapon not found in ViewModels", Duration = 4 })
+                else
+                    Rayfield:Notify({ Title = "Skin Changer", Content = "Failed to load skin module.", Duration = 4 })
+                end
+            end)
+            return
+        end
+        local success = SC.applySkin(scSelectedWeapon, Value)
+        Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. Value) or "Skin/weapon not found in ViewModels", Duration = 4 })
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Reset Skin (Default)",
+    Callback = function()
+        if not SC then return end
+        SC.resetSkin(scSelectedWeapon)
+        Rayfield:Notify({ Title = "Skin Changer", Content = scSelectedWeapon .. " reset to default.", Duration = 3 })
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Load Skin Module",
     Callback = function()
         loadSkinChanger(function(ok)
             Rayfield:Notify({
                 Title   = "Skin Changer",
-                Content = ok and "Loaded! All skins unlocked. Use the in-game equip menu to select skins." or "Failed to load skin unlocker.",
-                Duration = 6,
+                Content = ok and "Module loaded! Select a weapon and enter a skin name." or "Failed to load — ViewModels may not be accessible.",
+                Duration = 5,
             })
         end)
     end,
