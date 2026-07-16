@@ -10,24 +10,7 @@ local lp = Players.LocalPlayer
 local controllers = lp.PlayerScripts.Controllers
 
 -- // AC BYPASS
--- AC bypass — only runs on executors that support getrawmetatable/setreadonly
-local fake = Instance.new("RemoteEvent")
-fake.Name = "ClientAlert"
-fake.Parent = lp
-
-pcall(function()
-    local pmt = getrawmetatable(lp)
-    local oldnc = pmt.__namecall
-    setreadonly(pmt, false)
-    pmt.__namecall = newcclosure(function(self, ...)
-        if getnamecallmethod() == "WaitForChild" and select(1, ...) == "ClientAlert" then
-            return fake
-        end
-        return oldnc(self, ...)
-    end)
-    setreadonly(pmt, true)
-end)
-
+-- AC bypass (kick/shutdown block) — only on executors that support getrawmetatable
 pcall(function()
     local mt = getrawmetatable(game)
     local old = mt.__namecall
@@ -36,7 +19,6 @@ pcall(function()
         local m = getnamecallmethod()
         if self == lp and (m == "Kick" or m == "kick") then return end
         if m:lower():find("kick") or m == "Shutdown" then return end
-        if m == "FireServer" and self == fake then return end
         return old(self, ...)
     end)
     setreadonly(mt, true)
