@@ -13,13 +13,15 @@ local localPlayer = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local targetPlayer = nil
-local ClickInterval = 0.10
 local isLeftMouseDown = false
 local isRightMouseDown = false
 local autoClickConnection = nil
 
 local function isLobbyVisible()
-    return localPlayer.PlayerGui.MainGui.MainFrame.Lobby.Currency.Visible == true
+    local ok, result = pcall(function()
+        return localPlayer.PlayerGui.MainGui.MainFrame.Lobby.Currency.Visible == true
+    end)
+    return ok and result
 end
 
 local function getClosestPlayerToMouse()
