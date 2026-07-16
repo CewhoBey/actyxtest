@@ -1008,151 +1008,39 @@ local SC = nil
 local scInitialized = false
 
 -- Skin changer loads only when user clicks the button (not at startup)
+-- Uses changer2 (Axiom rebuild) — hooks DataController + ViewModel for real skin injection
 local function loadSkinChanger(callback)
     if SC then
         if callback then callback(true) end
         return
     end
     task.spawn(function()
-        local ok, result = pcall(function()
-            return loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/skinchanger1.lua"))()
+        local ok, err = pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/changer2.lua"))()
         end)
-        if ok and result then
-            SC = result
-            task.spawn(function()
-                scInitialized = SC.init()
-                if callback then callback(scInitialized) end
-            end)
-        else
-            warn("[SkinChanger] Module failed to load: " .. tostring(result))
-            if callback then callback(false) end
+        SC = ok  -- use SC as a boolean flag: true = loaded
+        if callback then callback(ok) end
+        if not ok then
+            warn("[SkinChanger] Failed to load: " .. tostring(err))
         end
     end)
 end
 
 local SkinTab = Window:CreateTab("Skin Changer", 4483362458)
 
--- sorted weapon list for dropdown
-local weaponNames = {}
-for k in pairs({
-    ["Assault Rifle"]=1,["Bow"]=1,["Burst Rifle"]=1,["Crossbow"]=1,["Distortion"]=1,
-    ["Energy Rifle"]=1,["Flamethrower"]=1,["Grenade Launcher"]=1,["Gunblade"]=1,["Minigun"]=1,
-    ["Paintball Gun"]=1,["RPG"]=1,["Shotgun"]=1,["Sniper"]=1,["Daggers"]=1,
-    ["Energy Pistols"]=1,["Exogun"]=1,["Flare Gun"]=1,["Handgun"]=1,["Revolver"]=1,
-    ["Shorty"]=1,["Slingshot"]=1,["Spray"]=1,["Uzi"]=1,["Warper"]=1,
-    ["Battle Axe"]=1,["Chainsaw"]=1,["Fists"]=1,["Katana"]=1,["Knife"]=1,
-    ["Riot Shield"]=1,["Scythe"]=1,["Trowel"]=1,["Flashbang"]=1,["Freeze Ray"]=1,
-    ["Grenade"]=1,["Jump Pad"]=1,["Medkit"]=1,["Molotov"]=1,["Satchel"]=1,
-    ["Smoke Grenade"]=1,["Subspace Tripmine"]=1,["War Horn"]=1,["Warpstone"]=1,["Permafrost"]=1,
-}) do
-    table.insert(weaponNames, k)
-end
-table.sort(weaponNames)
+SkinTab:CreateSection("Unlock All Skins")
 
-local selectedWeapon = weaponNames[1]
-
-SkinTab:CreateSection("Weapon Skins")
-
-SkinTab:CreateDropdown({
-    Name            = "Select Weapon",
-    Options         = weaponNames,
-    CurrentOption   = {weaponNames[1]},
-    MultipleOptions = false,
-    Flag            = "SkinWeapon",
-    Callback        = function(Value)
-        selectedWeapon = Value
-    end,
-})
-
--- Helper: auto-load SC on first use
-local function withSC(callback)
-    if SC then callback() return end
-    Rayfield:Notify({ Title = "Skin Changer", Content = "Loading skin engine...", Duration = 3 })
-    loadSkinChanger(function(ok)
-        if ok then callback()
-        else Rayfield:Notify({ Title = "Skin Changer", Content = "Failed to initialize skin engine.", Duration = 4 }) end
-    end)
-end
+SkinTab:CreateLabel("Hooks Rivals' cosmetic system to unlock all skins. Use the in-game equip menu after loading.", 4483362458, Color3.fromRGB(180, 180, 180), false)
 
 SkinTab:CreateButton({
-    Name     = "Initialize Skin Engine",
+    Name     = "Load Skin Unlocker (Axiom)",
     Callback = function()
         loadSkinChanger(function(ok)
             Rayfield:Notify({
                 Title   = "Skin Changer",
-                Content = ok and "Skin engine ready!" or "Loaded (hooks may be inactive on this executor).",
-                Duration = 5,
+                Content = ok and "Loaded! All skins unlocked. Use the in-game equip menu to select skins." or "Failed to load skin unlocker.",
+                Duration = 6,
             })
-        end)
-    end,
-})
-
-SkinTab:CreateButton({
-    Name     = "Show Available Skins",
-    Callback = function()
-        withSC(function()
-            local skins = SC.SkinLists[selectedWeapon]
-            if not skins then return end
-            Rayfield:Notify({ Title = selectedWeapon .. " Skins", Content = table.concat(skins, ", "):sub(1, 200), Duration = 8 })
-        end)
-    end,
-})
-
-SkinTab:CreateInput({
-    Name               = "Skin Name (exact)",
-    PlaceholderText    = "e.g. AK-47, Karambit, Saber",
-    RemoveTextAfterFocusLost = false,
-    Flag               = "SkinNameInput",
-    Callback           = function(Value)
-        withSC(function()
-            SC.equip(selectedWeapon, Value)
-            Rayfield:Notify({ Title = "Skin Applied", Content = selectedWeapon .. " → " .. Value, Duration = 4 })
-        end)
-    end,
-})
-
-SkinTab:CreateSection("Wrap")
-
-SkinTab:CreateInput({
-    Name               = "Wrap Name (exact)",
-    PlaceholderText    = "e.g. Gold, Damascus, Neon Lights",
-    RemoveTextAfterFocusLost = false,
-    Flag               = "WrapNameInput",
-    Callback           = function(Value)
-        withSC(function()
-            SC.equipWrap(selectedWeapon, Value)
-            Rayfield:Notify({ Title = "Wrap Applied", Content = selectedWeapon .. " wrap → " .. Value, Duration = 4 })
-        end)
-    end,
-})
-
-SkinTab:CreateButton({
-    Name     = "List All Wraps",
-    Callback = function()
-        withSC(function()
-            Rayfield:Notify({ Title = "Available Wraps", Content = table.concat(SC.WrapList, ", "):sub(1, 200), Duration = 8 })
-        end)
-    end,
-})
-
-SkinTab:CreateSection("Config")
-
-SkinTab:CreateButton({
-    Name     = "Save Skin Config",
-    Callback = function()
-        withSC(function()
-            local ok = SC.saveConfig()
-            Rayfield:Notify({ Title = "Config", Content = ok and "Saved!" or "Save failed (no filesystem access)", Duration = 4 })
-        end)
-    end,
-})
-
-SkinTab:CreateButton({
-    Name     = "Load Skin Config",
-    Callback = function()
-        withSC(function()
-            local ok = SC.loadConfig()
-            Rayfield:Notify({ Title = "Config", Content = ok and "Config loaded!" or "No config file found", Duration = 4 })
         end)
     end,
 })
