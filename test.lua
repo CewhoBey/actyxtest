@@ -1007,21 +1007,28 @@ VisualTab:CreateSlider({
 local SC = nil
 local scInitialized = false
 
-task.spawn(function()
-    local ok, result = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/skinchanger1.lua"))()
-    end)
-    if ok and result then
-        SC = result
-        -- Init in background (loads game modules, installs hooks)
-        task.spawn(function()
-            local success = SC.init()
-            scInitialized = success
-        end)
-    else
-        warn("[SkinChanger] Module failed to load: " .. tostring(result))
+-- Skin changer loads only when user clicks the button (not at startup)
+local function loadSkinChanger(callback)
+    if SC then
+        if callback then callback(true) end
+        return
     end
-end)
+    task.spawn(function()
+        local ok, result = pcall(function()
+            return loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/skinchanger1.lua"))()
+        end)
+        if ok and result then
+            SC = result
+            task.spawn(function()
+                scInitialized = SC.init()
+                if callback then callback(scInitialized) end
+            end)
+        else
+            warn("[SkinChanger] Module failed to load: " .. tostring(result))
+            if callback then callback(false) end
+        end
+    end)
+end
 
 local SkinTab = Window:CreateTab("Skin Changer", 4483362458)
 
@@ -1057,18 +1064,37 @@ SkinTab:CreateDropdown({
     end,
 })
 
+-- Helper: auto-load SC on first use
+local function withSC(callback)
+    if SC then callback() return end
+    Rayfield:Notify({ Title = "Skin Changer", Content = "Loading skin engine...", Duration = 3 })
+    loadSkinChanger(function(ok)
+        if ok then callback()
+        else Rayfield:Notify({ Title = "Skin Changer", Content = "Failed to initialize skin engine.", Duration = 4 }) end
+    end)
+end
+
 SkinTab:CreateButton({
-    Name     = "Apply Skin",
+    Name     = "Initialize Skin Engine",
     Callback = function()
-        if not SC then
-            Rayfield:Notify({ Title = "Skin Changer", Content = "Module still loading, please wait...", Duration = 3 })
-            return
-        end
-        local skins = SC.SkinLists[selectedWeapon]
-        if not skins then return end
-        -- Show a notification listing available skins
-        local skinStr = table.concat(skins, ", ")
-        Rayfield:Notify({ Title = selectedWeapon .. " Skins", Content = skinStr:sub(1, 200), Duration = 8 })
+        loadSkinChanger(function(ok)
+            Rayfield:Notify({
+                Title   = "Skin Changer",
+                Content = ok and "Skin engine ready!" or "Loaded (hooks may be inactive on this executor).",
+                Duration = 5,
+            })
+        end)
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Show Available Skins",
+    Callback = function()
+        withSC(function()
+            local skins = SC.SkinLists[selectedWeapon]
+            if not skins then return end
+            Rayfield:Notify({ Title = selectedWeapon .. " Skins", Content = table.concat(skins, ", "):sub(1, 200), Duration = 8 })
+        end)
     end,
 })
 
@@ -1078,12 +1104,10 @@ SkinTab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Flag               = "SkinNameInput",
     Callback           = function(Value)
-        if not SC then
-            Rayfield:Notify({ Title = "Skin Changer", Content = "Module still loading...", Duration = 3 })
-            return
-        end
-        SC.equip(selectedWeapon, Value)
-        Rayfield:Notify({ Title = "Skin Applied", Content = selectedWeapon .. " → " .. Value, Duration = 4 })
+        withSC(function()
+            SC.equip(selectedWeapon, Value)
+            Rayfield:Notify({ Title = "Skin Applied", Content = selectedWeapon .. " → " .. Value, Duration = 4 })
+        end)
     end,
 })
 
@@ -1095,18 +1119,19 @@ SkinTab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Flag               = "WrapNameInput",
     Callback           = function(Value)
-        if not SC then return end
-        SC.equipWrap(selectedWeapon, Value)
-        Rayfield:Notify({ Title = "Wrap Applied", Content = selectedWeapon .. " wrap → " .. Value, Duration = 4 })
+        withSC(function()
+            SC.equipWrap(selectedWeapon, Value)
+            Rayfield:Notify({ Title = "Wrap Applied", Content = selectedWeapon .. " wrap → " .. Value, Duration = 4 })
+        end)
     end,
 })
 
 SkinTab:CreateButton({
     Name     = "List All Wraps",
     Callback = function()
-        if not SC then return end
-        local wrapStr = table.concat(SC.WrapList, ", ")
-        Rayfield:Notify({ Title = "Available Wraps", Content = wrapStr:sub(1, 200), Duration = 8 })
+        withSC(function()
+            Rayfield:Notify({ Title = "Available Wraps", Content = table.concat(SC.WrapList, ", "):sub(1, 200), Duration = 8 })
+        end)
     end,
 })
 
@@ -1115,18 +1140,20 @@ SkinTab:CreateSection("Config")
 SkinTab:CreateButton({
     Name     = "Save Skin Config",
     Callback = function()
-        if not SC then return end
-        local ok = SC.saveConfig()
-        Rayfield:Notify({ Title = "Config", Content = ok and "Saved to OnetapSkinConfig.json" or "Save failed (no filesystem access)", Duration = 4 })
+        withSC(function()
+            local ok = SC.saveConfig()
+            Rayfield:Notify({ Title = "Config", Content = ok and "Saved!" or "Save failed (no filesystem access)", Duration = 4 })
+        end)
     end,
 })
 
 SkinTab:CreateButton({
     Name     = "Load Skin Config",
     Callback = function()
-        if not SC then return end
-        local ok = SC.loadConfig()
-        Rayfield:Notify({ Title = "Config", Content = ok and "Config loaded!" or "No config file found", Duration = 4 })
+        withSC(function()
+            local ok = SC.loadConfig()
+            Rayfield:Notify({ Title = "Config", Content = ok and "Config loaded!" or "No config file found", Duration = 4 })
+        end)
     end,
 })
 
