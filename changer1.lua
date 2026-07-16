@@ -112,9 +112,73 @@ local function resetSkin(weaponName)
     end
 end
 
+-- ── List all top-level folders in ViewModels ────────────────
+local function listWeapons()
+    local names = {}
+    for _, child in ipairs(viewModels:GetChildren()) do
+        table.insert(names, child.Name)
+    end
+    table.sort(names)
+    return names
+end
+
+-- ── List all children of a specific weapon folder ───────────
+local function listSkinsForWeapon(weaponName)
+    local weapon
+    for _, child in ipairs(viewModels:GetChildren()) do
+        if child.Name == weaponName then
+            weapon = child
+            break
+        end
+    end
+    if not weapon then return {} end
+    local names = {}
+    for _, child in ipairs(weapon:GetChildren()) do
+        table.insert(names, child.Name)
+    end
+    table.sort(names)
+    return names
+end
+
+-- ── Apply wrap (searches for wrap folder inside weapon) ──────
+local function applyWrap(weaponName, wrapName)
+    if not weaponName or not wrapName then return false end
+    -- Wraps are stored similarly to skins in the ViewModels tree
+    local weaponModel
+    for _, desc in ipairs(viewModels:GetDescendants()) do
+        if desc.Name == weaponName then
+            weaponModel = desc
+            break
+        end
+    end
+    if not weaponModel then return false end
+
+    local wrapSource
+    for _, desc in ipairs(viewModels:GetDescendants()) do
+        if desc.Name == wrapName then
+            wrapSource = desc
+            break
+        end
+    end
+    if not wrapSource then return false end
+
+    -- Apply wrap textures/meshes on top of existing weapon children
+    for _, child in ipairs(wrapSource:GetChildren()) do
+        local existing = weaponModel:FindFirstChild(child.Name)
+        if existing then
+            existing:Destroy()
+        end
+        child:Clone().Parent = weaponModel
+    end
+    return true
+end
+
 -- ── Return public API ───────────────────────────────────────
 return {
-    skinOptions = skinOptions,
-    applySkin   = applySkin,
-    resetSkin   = resetSkin,
+    skinOptions    = skinOptions,
+    applySkin      = applySkin,
+    resetSkin      = resetSkin,
+    applyWrap      = applyWrap,
+    listWeapons    = listWeapons,
+    listSkinsForWeapon = listSkinsForWeapon,
 }
