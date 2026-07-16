@@ -35,6 +35,102 @@ local targetNPCs        = false
 local teamCheckEnabled  = false
 local infiniteJump      = false
 local aimbotConnection  = nil
+local aimbotFOV         = 180 -- max screen radius in pixels (0 = unlimited)
+
+-- Misc state
+local noclipEnabled     = false
+local flyEnabled        = false
+local flySpeed          = 50
+local antiaafkEnabled   = false
+local fullbrightEnabled = false
+local noclipConnection  = nil
+local flyConnection     = nil
+local antiaafkConnection = nil
+
+-- FOV circle drawing
+local fovCircle = Drawing.new("Circle")
+fovCircle.Visible    = false
+fovCircle.Color      = Color3.fromRGB(255, 255, 255)
+fovCircle.Thickness  = 1
+fovCircle.Transparency = 0.6
+fovCircle.NumSides   = 64
+fovCircle.Filled     = false
+
+-- ============================================================
+-- MISC LOGIC
+-- ============================================================
+local function startNoclip()
+    if noclipConnection then noclipConnection:Disconnect() end
+    noclipConnection = RunService.Stepped:Connect(function()
+        if not noclipEnabled then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+            return
+        end
+        local char = localPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function startFly()
+    if flyConnection then flyConnection:Disconnect() end
+    local char = localPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    hum.PlatformStand = true
+    local bg = Instance.new("BodyGyro")
+    bg.MaxTorque = Vector3.new(0, 0, 0)
+    bg.Parent = hrp
+    local bv = Instance.new("BodyVelocity")
+    bv.Velocity = Vector3.zero
+    bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bv.Parent = hrp
+
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not flyEnabled then
+            flyConnection:Disconnect()
+            flyConnection = nil
+            hum.PlatformStand = false
+            bg:Destroy()
+            bv:Destroy()
+            return
+        end
+        local Cam = workspace.CurrentCamera
+        local dir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += Cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= Cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= Cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += Cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.new(0, 1, 0) end
+        bv.Velocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
+    end)
+end
+
+local function setFullbright(enabled)
+    local lighting = game:GetService("Lighting")
+    if enabled then
+        lighting.Brightness = 2
+        lighting.ClockTime = 14
+        lighting.FogEnd = 100000
+        lighting.GlobalShadows = false
+        lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    else
+        lighting.Brightness = 1
+        lighting.ClockTime = 14
+        lighting.FogEnd = 100000
+        lighting.GlobalShadows = true
+        lighting.Ambient = Color3.fromRGB(127, 127, 127)
+    end
+end
 
 -- ============================================================
 -- AIMBOT: GET CLOSEST TARGET (FOV-based)
@@ -48,6 +144,7 @@ local function getClosestTarget()
 
     local nearestTarget   = nil
     local shortestDistance = math.huge
+    local center = Vector2.new(Cam.ViewportSize.X / 2, Cam.ViewportSize.Y / 2)
 
     local function checkTarget(target)
         if not (target and target ~= character) then return end
@@ -60,6 +157,14 @@ local function getClosestTarget()
         local dist = (targetRoot.Position - localRoot.Position).Magnitude
 
         if dist >= shortestDistance then return end
+
+        -- FOV check: only target within screen radius
+        if aimbotFOV > 0 then
+            local screenPos, onScreen = Cam:WorldToViewportPoint(targetRoot.Position)
+            if not onScreen then return end
+            local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+            if screenDist > aimbotFOV then return end
+        end
 
         if wallCheckEnabled then
             local rayDir    = (targetRoot.Position - Cam.CFrame.Position).Unit * 1000
@@ -129,6 +234,27 @@ local function startAimbot()
         end
     end)
 end
+
+-- ============================================================
+-- FOV CIRCLE UPDATE LOOP
+-- ============================================================
+RunService.RenderStepped:Connect(function()
+    local Cam = workspace.CurrentCamera
+    fovCircle.Position = Vector2.new(Cam.ViewportSize.X / 2, Cam.ViewportSize.Y / 2)
+    fovCircle.Radius   = aimbotFOV
+end)
+
+-- ============================================================
+-- ANTI-AFK
+-- ============================================================
+local VirtualUser = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    if antiaafkEnabled then
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end
+end)
 
 -- ============================================================
 -- HEAD RESIZE
@@ -261,6 +387,30 @@ AimbotTab:CreateToggle({
     Flag         = "AimbotTargetNPCs",
     Callback     = function(Value)
         targetNPCs = Value
+    end,
+})
+
+AimbotTab:CreateSection("FOV")
+
+AimbotTab:CreateToggle({
+    Name         = "Show FOV Circle",
+    CurrentValue = false,
+    Flag         = "AimbotFovCircle",
+    Callback     = function(Value)
+        fovCircle.Visible = Value
+    end,
+})
+
+AimbotTab:CreateSlider({
+    Name         = "FOV Radius",
+    Range        = {10, 500},
+    Increment    = 10,
+    Suffix       = "px",
+    CurrentValue = 180,
+    Flag         = "AimbotFovRadius",
+    Callback     = function(Value)
+        aimbotFOV   = Value
+        fovCircle.Radius = Value
     end,
 })
 
@@ -428,6 +578,213 @@ MiscTab:CreateButton({
             Content  = "All heads resized to 5x5x5.",
             Duration = 3,
         })
+    end,
+})
+
+MiscTab:CreateSection("World")
+
+MiscTab:CreateToggle({
+    Name         = "No Clip",
+    CurrentValue = false,
+    Flag         = "MiscNoclip",
+    Callback     = function(Value)
+        noclipEnabled = Value
+        if noclipEnabled then startNoclip() end
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name         = "Fly",
+    CurrentValue = false,
+    Flag         = "MiscFly",
+    Callback     = function(Value)
+        flyEnabled = Value
+        if flyEnabled then
+            startFly()
+        end
+    end,
+})
+
+MiscTab:CreateSlider({
+    Name         = "Fly Speed",
+    Range        = {10, 200},
+    Increment    = 5,
+    Suffix       = "studs/s",
+    CurrentValue = 50,
+    Flag         = "MiscFlySpeed",
+    Callback     = function(Value)
+        flySpeed = Value
+    end,
+})
+
+MiscTab:CreateSlider({
+    Name         = "Jump Power",
+    Range        = {50, 500},
+    Increment    = 10,
+    Suffix       = "",
+    CurrentValue = 50,
+    Flag         = "MiscJumpPower",
+    Callback     = function(Value)
+        local char = localPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.JumpPower = Value end
+    end,
+})
+
+MiscTab:CreateSection("Utility")
+
+MiscTab:CreateToggle({
+    Name         = "Fullbright",
+    CurrentValue = false,
+    Flag         = "MiscFullbright",
+    Callback     = function(Value)
+        fullbrightEnabled = Value
+        setFullbright(Value)
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name         = "Anti-AFK",
+    CurrentValue = false,
+    Flag         = "MiscAntiAfk",
+    Callback     = function(Value)
+        antiaafkEnabled = Value
+    end,
+})
+
+-- ============================================================
+-- TAB: SKIN CHANGER
+-- ============================================================
+local SkinTab = Window:CreateTab("Skin Changer", 4483362458)
+SkinTab:CreateSection("Character")
+
+SkinTab:CreateColorPicker({
+    Name         = "Body Color",
+    Color        = Color3.fromRGB(255, 255, 255),
+    Flag         = "SkinBodyColor",
+    Callback     = function(Value)
+        local char = localPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.Color = Value
+            end
+        end
+    end,
+})
+
+SkinTab:CreateColorPicker({
+    Name         = "Head Color",
+    Color        = Color3.fromRGB(255, 220, 177),
+    Flag         = "SkinHeadColor",
+    Callback     = function(Value)
+        local char = localPlayer.Character
+        if not char then return end
+        local head = char:FindFirstChild("Head")
+        if head then head.Color = Value end
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Rainbow Character",
+    Callback = function()
+        local char = localPlayer.Character
+        if not char then return end
+        task.spawn(function()
+            while char and char.Parent do
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        part.Color = Color3.fromHSV(tick() % 1, 1, 1)
+                    end
+                end
+                task.wait(0.05)
+            end
+        end)
+    end,
+})
+
+SkinTab:CreateSection("Accessories")
+
+SkinTab:CreateButton({
+    Name     = "Remove All Accessories",
+    Callback = function()
+        local char = localPlayer.Character
+        if not char then return end
+        for _, acc in ipairs(char:GetChildren()) do
+            if acc:IsA("Accessory") then acc:Destroy() end
+        end
+        Rayfield:Notify({ Title = "Skin Changer", Content = "All accessories removed.", Duration = 3 })
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Remove All Clothing",
+    Callback = function()
+        local char = localPlayer.Character
+        if not char then return end
+        for _, obj in ipairs(char:GetChildren()) do
+            if obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic") then
+                obj:Destroy()
+            end
+        end
+        Rayfield:Notify({ Title = "Skin Changer", Content = "Clothing removed.", Duration = 3 })
+    end,
+})
+
+SkinTab:CreateSection("Weapon")
+
+SkinTab:CreateColorPicker({
+    Name         = "Tool Color",
+    Color        = Color3.fromRGB(255, 255, 255),
+    Flag         = "SkinToolColor",
+    Callback     = function(Value)
+        local char = localPlayer.Character
+        if not char then return end
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, part in ipairs(tool:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Color = Value
+                    end
+                end
+            end
+        end
+        -- also color tools in backpack
+        for _, tool in ipairs(localPlayer.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, part in ipairs(tool:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Color = Value
+                    end
+                end
+            end
+        end
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Remove Tool Textures",
+    Callback = function()
+        local function stripTextures(tool)
+            for _, part in ipairs(tool:GetDescendants()) do
+                if part:IsA("SpecialMesh") then
+                    part.TextureId = ""
+                elseif part:IsA("Texture") or part:IsA("Decal") then
+                    part:Destroy()
+                end
+            end
+        end
+        local char = localPlayer.Character
+        if char then
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") then stripTextures(tool) end
+            end
+        end
+        for _, tool in ipairs(localPlayer.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then stripTextures(tool) end
+        end
+        Rayfield:Notify({ Title = "Skin Changer", Content = "Tool textures removed.", Duration = 3 })
     end,
 })
 
