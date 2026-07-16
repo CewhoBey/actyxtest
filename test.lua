@@ -1002,9 +1002,135 @@ VisualTab:CreateSlider({
 
 -- ============================================================
 -- TAB: SKIN CHANGER
+-- Load the skin changer module (no custom GUI, uses Rayfield)
 -- ============================================================
+local SC = nil
+local scInitialized = false
+
+task.spawn(function()
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/skinchanger1.lua"))()
+    end)
+    if ok and result then
+        SC = result
+        -- Init in background (loads game modules, installs hooks)
+        task.spawn(function()
+            local success = SC.init()
+            scInitialized = success
+        end)
+    else
+        warn("[SkinChanger] Module failed to load: " .. tostring(result))
+    end
+end)
+
 local SkinTab = Window:CreateTab("Skin Changer", 4483362458)
-SkinTab:CreateSection("Character")
+
+-- sorted weapon list for dropdown
+local weaponNames = {}
+for k in pairs({
+    ["Assault Rifle"]=1,["Bow"]=1,["Burst Rifle"]=1,["Crossbow"]=1,["Distortion"]=1,
+    ["Energy Rifle"]=1,["Flamethrower"]=1,["Grenade Launcher"]=1,["Gunblade"]=1,["Minigun"]=1,
+    ["Paintball Gun"]=1,["RPG"]=1,["Shotgun"]=1,["Sniper"]=1,["Daggers"]=1,
+    ["Energy Pistols"]=1,["Exogun"]=1,["Flare Gun"]=1,["Handgun"]=1,["Revolver"]=1,
+    ["Shorty"]=1,["Slingshot"]=1,["Spray"]=1,["Uzi"]=1,["Warper"]=1,
+    ["Battle Axe"]=1,["Chainsaw"]=1,["Fists"]=1,["Katana"]=1,["Knife"]=1,
+    ["Riot Shield"]=1,["Scythe"]=1,["Trowel"]=1,["Flashbang"]=1,["Freeze Ray"]=1,
+    ["Grenade"]=1,["Jump Pad"]=1,["Medkit"]=1,["Molotov"]=1,["Satchel"]=1,
+    ["Smoke Grenade"]=1,["Subspace Tripmine"]=1,["War Horn"]=1,["Warpstone"]=1,["Permafrost"]=1,
+}) do
+    table.insert(weaponNames, k)
+end
+table.sort(weaponNames)
+
+local selectedWeapon = weaponNames[1]
+
+SkinTab:CreateSection("Weapon Skins")
+
+SkinTab:CreateDropdown({
+    Name            = "Select Weapon",
+    Options         = weaponNames,
+    CurrentOption   = {weaponNames[1]},
+    MultipleOptions = false,
+    Flag            = "SkinWeapon",
+    Callback        = function(Value)
+        selectedWeapon = Value
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Apply Skin",
+    Callback = function()
+        if not SC then
+            Rayfield:Notify({ Title = "Skin Changer", Content = "Module still loading, please wait...", Duration = 3 })
+            return
+        end
+        local skins = SC.SkinLists[selectedWeapon]
+        if not skins then return end
+        -- Show a notification listing available skins
+        local skinStr = table.concat(skins, ", ")
+        Rayfield:Notify({ Title = selectedWeapon .. " Skins", Content = skinStr:sub(1, 200), Duration = 8 })
+    end,
+})
+
+SkinTab:CreateInput({
+    Name               = "Skin Name (exact)",
+    PlaceholderText    = "e.g. AK-47, Karambit, Saber",
+    RemoveTextAfterFocusLost = false,
+    Flag               = "SkinNameInput",
+    Callback           = function(Value)
+        if not SC then
+            Rayfield:Notify({ Title = "Skin Changer", Content = "Module still loading...", Duration = 3 })
+            return
+        end
+        SC.equip(selectedWeapon, Value)
+        Rayfield:Notify({ Title = "Skin Applied", Content = selectedWeapon .. " → " .. Value, Duration = 4 })
+    end,
+})
+
+SkinTab:CreateSection("Wrap")
+
+SkinTab:CreateInput({
+    Name               = "Wrap Name (exact)",
+    PlaceholderText    = "e.g. Gold, Damascus, Neon Lights",
+    RemoveTextAfterFocusLost = false,
+    Flag               = "WrapNameInput",
+    Callback           = function(Value)
+        if not SC then return end
+        SC.equipWrap(selectedWeapon, Value)
+        Rayfield:Notify({ Title = "Wrap Applied", Content = selectedWeapon .. " wrap → " .. Value, Duration = 4 })
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "List All Wraps",
+    Callback = function()
+        if not SC then return end
+        local wrapStr = table.concat(SC.WrapList, ", ")
+        Rayfield:Notify({ Title = "Available Wraps", Content = wrapStr:sub(1, 200), Duration = 8 })
+    end,
+})
+
+SkinTab:CreateSection("Config")
+
+SkinTab:CreateButton({
+    Name     = "Save Skin Config",
+    Callback = function()
+        if not SC then return end
+        local ok = SC.saveConfig()
+        Rayfield:Notify({ Title = "Config", Content = ok and "Saved to OnetapSkinConfig.json" or "Save failed (no filesystem access)", Duration = 4 })
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "Load Skin Config",
+    Callback = function()
+        if not SC then return end
+        local ok = SC.loadConfig()
+        Rayfield:Notify({ Title = "Config", Content = ok and "Config loaded!" or "No config file found", Duration = 4 })
+    end,
+})
+
+SkinTab:CreateSection("Character Cosmetics")
 
 SkinTab:CreateColorPicker({
     Name         = "Body Color",
@@ -1051,8 +1177,6 @@ SkinTab:CreateButton({
     end,
 })
 
-SkinTab:CreateSection("Accessories")
-
 SkinTab:CreateButton({
     Name     = "Remove All Accessories",
     Callback = function()
@@ -1076,62 +1200,6 @@ SkinTab:CreateButton({
             end
         end
         Rayfield:Notify({ Title = "Skin Changer", Content = "Clothing removed.", Duration = 3 })
-    end,
-})
-
-SkinTab:CreateSection("Weapon")
-
-SkinTab:CreateColorPicker({
-    Name         = "Tool Color",
-    Color        = Color3.fromRGB(255, 255, 255),
-    Flag         = "SkinToolColor",
-    Callback     = function(Value)
-        local char = localPlayer.Character
-        if not char then return end
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                for _, part in ipairs(tool:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Color = Value
-                    end
-                end
-            end
-        end
-        -- also color tools in backpack
-        for _, tool in ipairs(localPlayer.Backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                for _, part in ipairs(tool:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Color = Value
-                    end
-                end
-            end
-        end
-    end,
-})
-
-SkinTab:CreateButton({
-    Name     = "Remove Tool Textures",
-    Callback = function()
-        local function stripTextures(tool)
-            for _, part in ipairs(tool:GetDescendants()) do
-                if part:IsA("SpecialMesh") then
-                    part.TextureId = ""
-                elseif part:IsA("Texture") or part:IsA("Decal") then
-                    part:Destroy()
-                end
-            end
-        end
-        local char = localPlayer.Character
-        if char then
-            for _, tool in ipairs(char:GetChildren()) do
-                if tool:IsA("Tool") then stripTextures(tool) end
-            end
-        end
-        for _, tool in ipairs(localPlayer.Backpack:GetChildren()) do
-            if tool:IsA("Tool") then stripTextures(tool) end
-        end
-        Rayfield:Notify({ Title = "Skin Changer", Content = "Tool textures removed.", Duration = 3 })
     end,
 })
 
