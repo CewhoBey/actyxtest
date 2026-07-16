@@ -101,9 +101,10 @@ local function robust_require(module)
 
     local old_identity
     pcall(function() if getidentity and setidentity then old_identity = getidentity() setidentity(2) end end)
-    local success, result = pcall(require, module)
+    -- Use pcall to silently swallow the "Cannot require from non-RobloxScript context" error
+    local success, result = pcall(function() return require(module) end)
     if not success and getgenv and getgenv().require then
-        local ok, res = pcall(getgenv().require, module)
+        local ok, res = pcall(function() return getgenv().require(module) end)
         if ok then success, result = true, res end
     end
     pcall(function() if setidentity and old_identity then setidentity(old_identity) end end)
@@ -167,13 +168,31 @@ local function init()
     if initialized then return true end
 
     task.wait(1.5)
-    CosmeticLibrary = robust_require(ReplicatedStorage:WaitForChild("Modules", 20):WaitForChild("CosmeticLibrary", 20))
-    ItemLibrary     = robust_require(ReplicatedStorage.Modules:WaitForChild("ItemLibrary", 20))
-    ReplicatedClass = robust_require(ReplicatedStorage.Modules:WaitForChild("ReplicatedClass", 20))
 
-    local Modules   = player.PlayerScripts:WaitForChild("Modules", 15)
-    local ClientItem = robust_require(Modules:WaitForChild("ClientReplicatedClasses", 15):WaitForChild("ClientFighter", 15):WaitForChild("ClientItem", 15))
-    ClientViewModel  = robust_require(Modules.ClientReplicatedClasses.ClientFighter.ClientItem:WaitForChild("ClientViewModel", 15))
+    -- Wrap all WaitForChild calls in pcall so errors don't spam the log
+    local ok, err = pcall(function()
+        local Modules_RS = ReplicatedStorage:WaitForChild("Modules", 10)
+        if not Modules_RS then return end
+
+        CosmeticLibrary = robust_require(Modules_RS:WaitForChild("CosmeticLibrary", 10))
+        ItemLibrary     = robust_require(Modules_RS:WaitForChild("ItemLibrary", 10))
+        ReplicatedClass = robust_require(Modules_RS:WaitForChild("ReplicatedClass", 10))
+
+        local PS_Modules = player.PlayerScripts:WaitForChild("Modules", 10)
+        if not PS_Modules then return end
+        local CRC = PS_Modules:WaitForChild("ClientReplicatedClasses", 10)
+        if not CRC then return end
+        local CF = CRC:WaitForChild("ClientFighter", 10)
+        if not CF then return end
+        local CI = CF:WaitForChild("ClientItem", 10)
+        if not CI then return end
+        ClientViewModel = robust_require(CI:WaitForChild("ClientViewModel", 10))
+    end)
+
+    if not ok then
+        warn("[SkinChanger] Init error (likely executor restriction): " .. tostring(err))
+        return false
+    end
 
     if not CosmeticLibrary or not ClientViewModel or not ReplicatedClass then
         warn("[SkinChanger] Required modules not found — skin hooks inactive.")
