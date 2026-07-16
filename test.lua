@@ -1118,6 +1118,53 @@ SkinTab:CreateButton({
     end,
 })
 
+SkinTab:CreateSection("Wraps")
+
+SkinTab:CreateInput({
+    Name                     = "Apply Wrap",
+    PlaceholderText          = "e.g. Gold, Damascus, Neon Lights",
+    RemoveTextAfterFocusLost = false,
+    Flag                     = "SC_WrapInput",
+    Callback                 = function(Value)
+        if not SC then
+            Rayfield:Notify({ Title = "Skin Changer", Content = "Load the skin module first.", Duration = 3 })
+            return
+        end
+        local success = SC.applyWrap(scSelectedWeapon, Value)
+        Rayfield:Notify({ Title = "Wrap", Content = success and (scSelectedWeapon .. " wrap → " .. Value) or "Wrap not found in ViewModels", Duration = 4 })
+    end,
+})
+
+SkinTab:CreateSection("Debug")
+
+SkinTab:CreateButton({
+    Name     = "List All Weapons (console)",
+    Callback = function()
+        if not SC then
+            Rayfield:Notify({ Title = "Debug", Content = "Load skin module first.", Duration = 3 })
+            return
+        end
+        local weapons = SC.listWeapons()
+        print("[SkinChanger] Weapons in ViewModels:")
+        for _, w in ipairs(weapons) do print("  " .. w) end
+        Rayfield:Notify({ Title = "Debug", Content = #weapons .. " weapons found. Check console (F9).", Duration = 4 })
+    end,
+})
+
+SkinTab:CreateButton({
+    Name     = "List Skins for Selected Weapon (console)",
+    Callback = function()
+        if not SC then
+            Rayfield:Notify({ Title = "Debug", Content = "Load skin module first.", Duration = 3 })
+            return
+        end
+        local skins = SC.listSkinsForWeapon(scSelectedWeapon)
+        print("[SkinChanger] Children of '" .. scSelectedWeapon .. "':")
+        for _, s in ipairs(skins) do print("  " .. s) end
+        Rayfield:Notify({ Title = scSelectedWeapon, Content = #skins .. " children found. Check console (F9).", Duration = 4 })
+    end,
+})
+
 SkinTab:CreateSection("Character Cosmetics")
 
 SkinTab:CreateColorPicker({
