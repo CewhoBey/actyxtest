@@ -10,55 +10,63 @@ local lp = Players.LocalPlayer
 local controllers = lp.PlayerScripts.Controllers
 
 -- // AC BYPASS
+-- AC bypass — only runs on executors that support getrawmetatable/setreadonly
 local fake = Instance.new("RemoteEvent")
 fake.Name = "ClientAlert"
 fake.Parent = lp
 
-local pmt = getrawmetatable(lp)
-local oldnc = pmt.__namecall
-setreadonly(pmt, false)
-pmt.__namecall = newcclosure(function(self, ...)
-    if getnamecallmethod() == "WaitForChild" and select(1, ...) == "ClientAlert" then
-        return fake
-    end
-    return oldnc(self, ...)
+pcall(function()
+    local pmt = getrawmetatable(lp)
+    local oldnc = pmt.__namecall
+    setreadonly(pmt, false)
+    pmt.__namecall = newcclosure(function(self, ...)
+        if getnamecallmethod() == "WaitForChild" and select(1, ...) == "ClientAlert" then
+            return fake
+        end
+        return oldnc(self, ...)
+    end)
+    setreadonly(pmt, true)
 end)
-setreadonly(pmt, true)
 
-local mt = getrawmetatable(game)
-local old = mt.__namecall
-setreadonly(mt, false)
-mt.__namecall = newcclosure(function(self, ...)
-    local m = getnamecallmethod()
-    if self == lp and (m == "Kick" or m == "kick") then return end
-    if m:lower():find("kick") or m == "Shutdown" then return end
-    if m == "FireServer" and self == fake then return end
-    return old(self, ...)
+pcall(function()
+    local mt = getrawmetatable(game)
+    local old = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local m = getnamecallmethod()
+        if self == lp and (m == "Kick" or m == "kick") then return end
+        if m:lower():find("kick") or m == "Shutdown" then return end
+        if m == "FireServer" and self == fake then return end
+        return old(self, ...)
+    end)
+    setreadonly(mt, true)
 end)
-setreadonly(mt, true)
 
-local ls3 = ReplicatedFirst:WaitForChild("LocalScript3", 10)
 local hooked = 0
-for _, f in getgc(false) do
-    if typeof(f) == "function" then
-        local ok, env = pcall(getfenv, f)
-        if ok and env then
-            local scr = rawget(env, "script")
-            if scr and (scr == ls3 or tostring(scr):find("LoadingScreen")) then
-                local ok2, cs = pcall(debug.getconstants, f)
-                if ok2 then
-                    for _, k in cs do
-                        if typeof(k) == "string" and (k:find("TakeTheL") or k:find("ban") or k:find("kick")) then
-                            hookfunction(f, function() end)
-                            hooked += 1
-                            break
+pcall(function()
+    local ls3 = ReplicatedFirst:WaitForChild("LocalScript3", 5)
+    if not ls3 then return end
+    for _, f in getgc(false) do
+        if typeof(f) == "function" then
+            local ok, env = pcall(getfenv, f)
+            if ok and env then
+                local scr = rawget(env, "script")
+                if scr and (scr == ls3 or tostring(scr):find("LoadingScreen")) then
+                    local ok2, cs = pcall(debug.getconstants, f)
+                    if ok2 then
+                        for _, k in cs do
+                            if typeof(k) == "string" and (k:find("TakeTheL") or k:find("ban") or k:find("kick")) then
+                                hookfunction(f, function() end)
+                                hooked += 1
+                                break
+                            end
                         end
                     end
                 end
             end
         end
     end
-end
+end)
 print("[Axiom] AC hooks neutralized: " .. hooked)
 
 -- // MODULE REQUIRES
