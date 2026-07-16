@@ -51,12 +51,29 @@ pcall(function()
 end)
 print("[Axiom] AC hooks neutralized: " .. hooked)
 
--- // MODULE REQUIRES
-local EnumLibrary = require(ReplicatedStorage.Modules:WaitForChild("EnumLibrary", 10))
-if EnumLibrary then EnumLibrary:WaitForEnumBuilder() end
-local CosmeticLibrary = require(ReplicatedStorage.Modules:WaitForChild("CosmeticLibrary", 10))
-local ItemLibrary = require(ReplicatedStorage.Modules:WaitForChild("ItemLibrary", 10))
-local DataController = require(controllers:WaitForChild("PlayerDataController", 10))
+-- // MODULE REQUIRES — all wrapped in pcall to avoid corrupting game modules on failure
+local EnumLibrary, CosmeticLibrary, ItemLibrary, DataController
+
+pcall(function()
+    EnumLibrary = require(ReplicatedStorage.Modules:WaitForChild("EnumLibrary", 10))
+    if EnumLibrary and EnumLibrary.WaitForEnumBuilder then
+        EnumLibrary:WaitForEnumBuilder()
+    end
+end)
+pcall(function()
+    CosmeticLibrary = require(ReplicatedStorage.Modules:WaitForChild("CosmeticLibrary", 10))
+end)
+pcall(function()
+    ItemLibrary = require(ReplicatedStorage.Modules:WaitForChild("ItemLibrary", 10))
+end)
+pcall(function()
+    DataController = require(controllers:WaitForChild("PlayerDataController", 10))
+end)
+
+if not CosmeticLibrary or not DataController then
+    warn("[Axiom] Core modules unavailable on this executor — skin injection inactive.")
+    return
+end
 
 -- // STATE
 local equipped = {}
