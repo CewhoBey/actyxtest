@@ -36,6 +36,10 @@ local teamCheckEnabled  = false
 local infiniteJump      = false
 local aimbotConnection  = nil
 local aimbotFOV         = 180 -- max screen radius in pixels (0 = unlimited)
+local smoothAim         = false
+local smoothness        = 0.2  -- lerp factor (lower = smoother)
+local aimKeyOnly        = false -- only aim when RMB held
+local aimPrediction     = false
 
 -- Misc state
 local noclipEnabled     = false
@@ -46,6 +50,14 @@ local fullbrightEnabled = false
 local noclipConnection  = nil
 local flyConnection     = nil
 local antiaafkConnection = nil
+local autoHealEnabled   = false
+local autoHealConnection = nil
+local lagSwitchEnabled  = false
+local chamsEnabled      = false
+local chamsColor        = Color3.fromRGB(255, 0, 0)
+local chamsCache        = {} -- player -> {parts -> original color}
+local clickTeleportConn = nil
+local clickTeleportEnabled = false
 
 -- FOV circle drawing
 local fovCircle = Drawing.new("Circle")
@@ -55,6 +67,19 @@ fovCircle.Thickness  = 1
 fovCircle.Transparency = 0.6
 fovCircle.NumSides   = 64
 fovCircle.Filled     = false
+
+-- Custom crosshair drawings
+local crosshairEnabled = false
+local chLines = {
+    Drawing.new("Line"), Drawing.new("Line"),
+    Drawing.new("Line"), Drawing.new("Line"),
+}
+for _, l in ipairs(chLines) do
+    l.Color       = Color3.fromRGB(255, 255, 255)
+    l.Thickness   = 1
+    l.Transparency = 1
+    l.Visible     = false
+end
 
 -- ============================================================
 -- MISC LOGIC
@@ -225,23 +250,70 @@ local function startAimbot()
             return
         end
 
+        -- Aim key check
+        if aimKeyOnly and not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+            return
+        end
+
         local target = getClosestTarget()
         if target and target:FindFirstChild(aimAtPart) then
             local humanoid = target:FindFirstChildOfClass("Humanoid")
             if humanoid and humanoid.Health > 0 then
-                lookAt(target[aimAtPart].Position)
+                local Cam = workspace.CurrentCamera
+                local targetRoot = target[aimAtPart]
+                local aimPos = targetRoot.Position
+
+                -- Aim prediction: lead target by velocity * offset
+                if aimPrediction then
+                    local vel = targetRoot.AssemblyLinearVelocity
+                    local dist = (targetRoot.Position - Cam.CFrame.Position).Magnitude
+                    local travelTime = dist / 300 -- rough bullet travel estimate
+                    aimPos = aimPos + vel * travelTime
+                end
+
+                if smoothAim then
+                    local targetCF = CFrame.new(Cam.CFrame.Position, aimPos)
+                    Cam.CFrame = Cam.CFrame:Lerp(targetCF, smoothness)
+                else
+                    lookAt(aimPos)
+                end
             end
         end
     end)
 end
 
 -- ============================================================
--- FOV CIRCLE UPDATE LOOP
+-- FOV CIRCLE + CROSSHAIR UPDATE LOOP
 -- ============================================================
 RunService.RenderStepped:Connect(function()
     local Cam = workspace.CurrentCamera
-    fovCircle.Position = Vector2.new(Cam.ViewportSize.X / 2, Cam.ViewportSize.Y / 2)
+    local cx = Cam.ViewportSize.X / 2
+    local cy = Cam.ViewportSize.Y / 2
+
+    -- FOV circle
+    fovCircle.Position = Vector2.new(cx, cy)
     fovCircle.Radius   = aimbotFOV
+
+    -- Crosshair (4-line plus sign)
+    local size = 10
+    local gap  = 4
+    if crosshairEnabled then
+        -- left
+        chLines[1].From = Vector2.new(cx - size - gap, cy)
+        chLines[1].To   = Vector2.new(cx - gap, cy)
+        -- right
+        chLines[2].From = Vector2.new(cx + gap, cy)
+        chLines[2].To   = Vector2.new(cx + size + gap, cy)
+        -- up
+        chLines[3].From = Vector2.new(cx, cy - size - gap)
+        chLines[3].To   = Vector2.new(cx, cy - gap)
+        -- down
+        chLines[4].From = Vector2.new(cx, cy + gap)
+        chLines[4].To   = Vector2.new(cx, cy + size + gap)
+        for _, l in ipairs(chLines) do l.Visible = true end
+    else
+        for _, l in ipairs(chLines) do l.Visible = false end
+    end
 end)
 
 -- ============================================================
@@ -253,6 +325,108 @@ game:GetService("Players").LocalPlayer.Idled:Connect(function()
         VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end
+end)
+
+-- ============================================================
+-- CHAMS
+-- ============================================================
+local function applyChams(enabled)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            for _, part in ipairs(player.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if enabled then
+                        part.Material = Enum.Material.Neon
+                        part.Color = chamsColor
+                    else
+                        part.Material = Enum.Material.SmoothPlastic
+                    end
+                end
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if not chamsEnabled then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            for _, part in ipairs(player.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Material = Enum.Material.Neon
+                    part.Color = chamsColor
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================================
+-- AUTO-HEAL [RISKY — server may detect rapid health changes]
+-- ============================================================
+local function startAutoHeal()
+    if autoHealConnection then autoHealConnection:Disconnect() end
+    autoHealConnection = RunService.Heartbeat:Connect(function()
+        if not autoHealEnabled then
+            autoHealConnection:Disconnect()
+            autoHealConnection = nil
+            return
+        end
+        local char = localPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
+        end
+    end)
+end
+
+-- ============================================================
+-- CLICK TELEPORT [RISKY — position changes are server-visible]
+-- ============================================================
+local function startClickTeleport()
+    if clickTeleportConn then clickTeleportConn:Disconnect() end
+    clickTeleportConn = UserInputService.InputBegan:Connect(function(input, processed)
+        if not clickTeleportEnabled or processed then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        local unitRay = workspace.CurrentCamera:ScreenPointToRay(
+            UserInputService:GetMouseLocation().X,
+            UserInputService:GetMouseLocation().Y
+        )
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {localPlayer.Character}
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        local result = workspace:Raycast(unitRay.Origin, unitRay.Direction * 500, params)
+        if result then
+            local char = localPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- PLAYER JOIN/LEAVE NOTIFICATIONS
+-- ============================================================
+local notifyJoinLeave = false
+Players.PlayerAdded:Connect(function(player)
+    if notifyJoinLeave then
+        -- Rayfield may not be available yet at this point so we guard
+        task.delay(0.5, function()
+            if Rayfield then
+                Rayfield:Notify({ Title = "Player Joined", Content = player.Name .. " joined the game.", Duration = 4 })
+            end
+        end)
+    end
+end)
+Players.PlayerRemoving:Connect(function(player)
+    if notifyJoinLeave then
+        if Rayfield then
+            Rayfield:Notify({ Title = "Player Left", Content = player.Name .. " left the game.", Duration = 4 })
+        end
     end
 end)
 
@@ -387,6 +561,47 @@ AimbotTab:CreateToggle({
     Flag         = "AimbotTargetNPCs",
     Callback     = function(Value)
         targetNPCs = Value
+    end,
+})
+
+AimbotTab:CreateSection("Advanced")
+
+AimbotTab:CreateToggle({
+    Name         = "Smooth Aim",
+    CurrentValue = false,
+    Flag         = "AimbotSmoothAim",
+    Callback     = function(Value)
+        smoothAim = Value
+    end,
+})
+
+AimbotTab:CreateSlider({
+    Name         = "Smoothness",
+    Range        = {1, 20},
+    Increment    = 1,
+    Suffix       = "",
+    CurrentValue = 4,
+    Flag         = "AimbotSmoothness",
+    Callback     = function(Value)
+        smoothness = Value / 20  -- convert 1-20 to 0.05-1.0
+    end,
+})
+
+AimbotTab:CreateToggle({
+    Name         = "Aim Key (RMB Only)",
+    CurrentValue = false,
+    Flag         = "AimbotAimKey",
+    Callback     = function(Value)
+        aimKeyOnly = Value
+    end,
+})
+
+AimbotTab:CreateToggle({
+    Name         = "Aim Prediction",
+    CurrentValue = false,
+    Flag         = "AimbotPrediction",
+    Callback     = function(Value)
+        aimPrediction = Value
     end,
 })
 
@@ -650,6 +865,138 @@ MiscTab:CreateToggle({
     Flag         = "MiscAntiAfk",
     Callback     = function(Value)
         antiaafkEnabled = Value
+    end,
+})
+
+MiscTab:CreateSection("Risky")
+
+MiscTab:CreateToggle({
+    Name         = "Auto-Heal [RISKY]",
+    CurrentValue = false,
+    Flag         = "MiscAutoHeal",
+    Callback     = function(Value)
+        autoHealEnabled = Value
+        if autoHealEnabled then startAutoHeal() end
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name         = "Click Teleport [RISKY]",
+    CurrentValue = false,
+    Flag         = "MiscClickTeleport",
+    Callback     = function(Value)
+        clickTeleportEnabled = Value
+        if clickTeleportEnabled then
+            startClickTeleport()
+        elseif clickTeleportConn then
+            clickTeleportConn:Disconnect()
+            clickTeleportConn = nil
+        end
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name         = "Lag Switch [RISKY]",
+    CurrentValue = false,
+    Flag         = "MiscLagSwitch",
+    Callback     = function(Value)
+        lagSwitchEnabled = Value
+        if Value then
+            -- Pause all physics replication by freezing the HRP
+            local char = localPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Anchored = true
+            end
+        else
+            local char = localPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Anchored = false
+            end
+        end
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name         = "Player Join/Leave Notifications",
+    CurrentValue = false,
+    Flag         = "MiscJoinLeave",
+    Callback     = function(Value)
+        notifyJoinLeave = Value
+    end,
+})
+
+-- ============================================================
+-- TAB: VISUAL
+-- ============================================================
+local VisualTab = Window:CreateTab("Visual", 4483362458)
+VisualTab:CreateSection("Chams")
+
+VisualTab:CreateToggle({
+    Name         = "Enable Chams",
+    CurrentValue = false,
+    Flag         = "VisualChams",
+    Callback     = function(Value)
+        chamsEnabled = Value
+        if not Value then applyChams(false) end
+    end,
+})
+
+VisualTab:CreateColorPicker({
+    Name         = "Chams Color",
+    Color        = Color3.fromRGB(255, 0, 0),
+    Flag         = "VisualChamsColor",
+    Callback     = function(Value)
+        chamsColor = Value
+    end,
+})
+
+VisualTab:CreateSection("Crosshair")
+
+VisualTab:CreateToggle({
+    Name         = "Custom Crosshair",
+    CurrentValue = false,
+    Flag         = "VisualCrosshair",
+    Callback     = function(Value)
+        crosshairEnabled = Value
+    end,
+})
+
+VisualTab:CreateColorPicker({
+    Name         = "Crosshair Color",
+    Color        = Color3.fromRGB(255, 255, 255),
+    Flag         = "VisualCrosshairColor",
+    Callback     = function(Value)
+        for _, l in ipairs(chLines) do l.Color = Value end
+    end,
+})
+
+VisualTab:CreateSection("Camera")
+
+VisualTab:CreateSlider({
+    Name         = "Field of View",
+    Range        = {50, 120},
+    Increment    = 5,
+    Suffix       = "°",
+    CurrentValue = 70,
+    Flag         = "VisualFOV",
+    Callback     = function(Value)
+        workspace.CurrentCamera.FieldOfView = Value
+    end,
+})
+
+VisualTab:CreateSection("World")
+
+VisualTab:CreateSlider({
+    Name         = "Time of Day",
+    Range        = {0, 24},
+    Increment    = 1,
+    Suffix       = ":00",
+    CurrentValue = 14,
+    Flag         = "VisualTimeOfDay",
+    Callback     = function(Value)
+        game:GetService("Lighting").ClockTime = Value
     end,
 })
 
