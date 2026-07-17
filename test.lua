@@ -471,6 +471,213 @@ UserInputService.JumpRequest:Connect(function()
 end)
 
 -- ============================================================
+-- HIDE SMOKE
+-- ============================================================
+local hideSmokeEnabled   = false
+local hideSmokeConn      = nil
+
+local function startHideSmoke()
+    if hideSmokeConn then return end
+    local function handleSmoke(inst)
+        if not inst or not inst.Parent then return end
+        for _, d in ipairs(inst:GetDescendants()) do
+            if d:IsA("ParticleEmitter") then d.Enabled = false
+            elseif d:IsA("BasePart") then d.Transparency = 1
+            elseif d:IsA("Decal") or d:IsA("Texture") then d.Transparency = 1
+            end
+        end
+        task.defer(function() if inst and inst.Parent then inst:Destroy() end end)
+    end
+    hideSmokeConn = workspace.DescendantAdded:Connect(function(child)
+        if not hideSmokeEnabled then return end
+        if child.Name == "Smoke Grenade" then handleSmoke(child) end
+    end)
+    -- Clear existing
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "Smoke Grenade" then handleSmoke(v) end
+    end
+end
+
+local function stopHideSmoke()
+    hideSmokeEnabled = false
+    if hideSmokeConn then hideSmokeConn:Disconnect() hideSmokeConn = nil end
+end
+
+-- ============================================================
+-- HIDE FLASHBANG
+-- ============================================================
+local hideFlashEnabled   = false
+local hideFlashWsConn    = nil
+local hideFlashGuiConn   = nil
+
+local function startHideFlash()
+    if hideFlashWsConn then return end
+    local playerGui = localPlayer:FindFirstChild("PlayerGui")
+    local function killFlash(inst)
+        if inst and inst.Parent then inst:Destroy() end
+    end
+    hideFlashWsConn = workspace.ChildAdded:Connect(function(child)
+        if not hideFlashEnabled then return end
+        if child.Name == "FlashbangEffect" then killFlash(child) end
+    end)
+    if playerGui then
+        hideFlashGuiConn = playerGui.ChildAdded:Connect(function(child)
+            if not hideFlashEnabled then return end
+            if child.Name:lower():find("flash") then killFlash(child) end
+        end)
+    end
+end
+
+local function stopHideFlash()
+    hideFlashEnabled = false
+    if hideFlashWsConn then hideFlashWsConn:Disconnect() hideFlashWsConn = nil end
+    if hideFlashGuiConn then hideFlashGuiConn:Disconnect() hideFlashGuiConn = nil end
+end
+
+-- ============================================================
+-- AUTO SHOOT (fires mouse1 when enemy head is in FOV)
+-- ============================================================
+local autoShootEnabled  = false
+local autoShootConn     = nil
+
+local function startAutoShoot()
+    if autoShootConn then autoShootConn:Disconnect() end
+    autoShootConn = RunService.Heartbeat:Connect(function()
+        if not autoShootEnabled then
+            autoShootConn:Disconnect()
+            autoShootConn = nil
+            return
+        end
+        local target = getClosestTarget()
+        if not target then return end
+        local head = target:FindFirstChild("Head")
+        if not head then return end
+        local cam = workspace.CurrentCamera
+        local screenPos, onScreen = cam:WorldToViewportPoint(head.Position)
+        if not onScreen then return end
+        local vs = cam.ViewportSize
+        local dx = screenPos.X - vs.X * 0.5
+        local dy = screenPos.Y - vs.Y * 0.5
+        local dist = math.sqrt(dx*dx + dy*dy)
+        if dist <= aimbotFOV then
+            mouse1click()
+        end
+    end)
+end
+
+-- ============================================================
+-- STICK TO TARGET (teleport behind closest enemy)
+-- ============================================================
+local stickEnabled      = false
+local stickConn         = nil
+local BEHIND_DISTANCE   = 3  -- studs behind target
+
+local function startStick()
+    if stickConn then stickConn:Disconnect() end
+    stickConn = RunService.Heartbeat:Connect(function()
+        if not stickEnabled then
+            stickConn:Disconnect()
+            stickConn = nil
+            return
+        end
+        local char = localPlayer.Character
+        if not char then return end
+        local target = getClosestTarget()
+        if not target then return end
+        local tp = target:FindFirstChild("HumanoidRootPart")
+        if not tp then return end
+        local behindPos = tp.Position - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE) + Vector3.new(0, 0.1, 0)
+        local dest = CFrame.new(behindPos, tp.Position)
+        pcall(function() char:SetPrimaryPartCFrame(dest) end)
+    end)
+end
+
+-- ============================================================
+-- SIXTH SENSE (Drawing labels on enemies through walls)
+-- ============================================================
+local sixthSenseEnabled = false
+local sixthSenseLabels  = {}
+local sixthSenseConn    = nil
+
+local function updateSixthSense()
+    if sixthSenseConn then sixthSenseConn:Disconnect() end
+    -- Clear old labels
+    for _, lbl in pairs(sixthSenseLabels) do
+        if lbl and lbl.Remove then lbl:Remove() end
+    end
+    sixthSenseLabels = {}
+    if not sixthSenseEnabled then return end
+
+    sixthSenseConn = RunService.RenderStepped:Connect(function()
+        local cam = workspace.CurrentCamera
+        -- Remove stale labels
+        for player, lbl in pairs(sixthSenseLabels) do
+            if not (Players:FindFirstChild(player.Name)) or not player.Character then
+                lbl:Remove()
+                sixthSenseLabels[player] = nil
+            end
+        end
+        -- Create/update labels
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= localPlayer and player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                local hum = player.Character:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    if not sixthSenseLabels[player] then
+                        local lbl = Drawing.new("Text")
+                        lbl.Size     = 16
+                        lbl.Color    = Color3.fromRGB(255, 80, 80)
+                        lbl.Center   = true
+                        lbl.Outline  = true
+                        lbl.Visible  = false
+                        sixthSenseLabels[player] = lbl
+                    end
+                    local lbl = sixthSenseLabels[player]
+                    local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
+                    if onScreen and screenPos.Z > 0 then
+                        local dist = math.floor((hrp.Position - cam.CFrame.Position).Magnitude)
+                        lbl.Text     = player.Name .. "  " .. dist .. "m"
+                        lbl.Position = Vector2.new(screenPos.X, screenPos.Y)
+                        lbl.Visible  = true
+                    else
+                        lbl.Visible  = false
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- FPS COUNTER (Drawing overlay)
+-- ============================================================
+local fpsEnabled     = false
+local fpsLabel       = Drawing.new("Text")
+fpsLabel.Size        = 18
+fpsLabel.Color       = Color3.fromRGB(80, 220, 80)
+fpsLabel.Outline     = true
+fpsLabel.Visible     = false
+fpsLabel.Position    = Vector2.new(10, 10)
+
+local _fpsFrames = 0
+local _fpsLast   = tick()
+RunService.RenderStepped:Connect(function()
+    if not fpsEnabled then
+        fpsLabel.Visible = false
+        return
+    end
+    _fpsFrames = _fpsFrames + 1
+    local now = tick()
+    if now - _fpsLast >= 0.5 then
+        local fps = math.round(_fpsFrames / (now - _fpsLast))
+        fpsLabel.Text    = "FPS: " .. fps
+        fpsLabel.Visible = true
+        _fpsFrames = 0
+        _fpsLast   = now
+    end
+end)
+
+-- ============================================================
 -- RAYFIELD UI
 -- ============================================================
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/CewhoBey/actyxtest/refs/heads/main/RAYFIELD-ui.lua'))()
@@ -1000,6 +1207,93 @@ VisualTab:CreateSlider({
     end,
 })
 
+VisualTab:CreateSection("Overlay")
+
+VisualTab:CreateToggle({
+    Name         = "FPS Counter",
+    CurrentValue = false,
+    Flag         = "VisualFPS",
+    Callback     = function(Value)
+        fpsEnabled = Value
+        if not Value then fpsLabel.Visible = false end
+    end,
+})
+
+-- ============================================================
+-- TAB: COMBAT (new features from foundsource1)
+-- ============================================================
+local CombatTab = Window:CreateTab("Combat", 4483362458)
+
+CombatTab:CreateSection("Auto Shoot")
+CombatTab:CreateToggle({
+    Name         = "Auto Shoot (fires when enemy in FOV)",
+    CurrentValue = false,
+    Flag         = "CombatAutoShoot",
+    Callback     = function(Value)
+        autoShootEnabled = Value
+        if Value then startAutoShoot() end
+    end,
+})
+
+CombatTab:CreateSection("Stick to Target")
+CombatTab:CreateToggle({
+    Name         = "Stick to Target (teleport behind enemy)",
+    CurrentValue = false,
+    Flag         = "CombatStick",
+    Callback     = function(Value)
+        stickEnabled = Value
+        if Value then startStick() end
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name         = "Stick Distance",
+    Range        = {1, 15},
+    Increment    = 1,
+    Suffix       = " studs",
+    CurrentValue = 3,
+    Flag         = "CombatStickDist",
+    Callback     = function(Value)
+        BEHIND_DISTANCE = Value
+    end,
+})
+
+CombatTab:CreateSection("Sixth Sense")
+CombatTab:CreateToggle({
+    Name         = "Sixth Sense (enemy labels through walls)",
+    CurrentValue = false,
+    Flag         = "CombatSixthSense",
+    Callback     = function(Value)
+        sixthSenseEnabled = Value
+        updateSixthSense()
+    end,
+})
+
+CombatTab:CreateSection("Grenades")
+CombatTab:CreateToggle({
+    Name         = "Hide Smoke Visuals",
+    CurrentValue = false,
+    Flag         = "CombatHideSmoke",
+    Callback     = function(Value)
+        hideSmokeEnabled = Value
+        if Value then startHideSmoke() else stopHideSmoke() end
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name         = "Hide Flashbang Effect",
+    CurrentValue = false,
+    Flag         = "CombatHideFlash",
+    Callback     = function(Value)
+        hideFlashEnabled = Value
+        if Value then startHideFlash() else stopHideFlash() end
+    end,
+})
+
+-- Add FPS toggle to Visual tab (find it and append)
+-- FPS counter goes in Visual tab — added inline after the existing Visual section
+-- (done via the Visual tab reference below)
+
 -- ============================================================
 -- TAB: SKIN CHANGER
 -- Load the skin changer module (no custom GUI, uses Rayfield)
@@ -1119,36 +1413,41 @@ SkinTab:CreateDropdown({
     end,
 })
 
-SkinTab:CreateDropdown({
-    Name            = "Select Skin",
-    Options         = scSkinOptions[scWeaponNames[1]],
-    CurrentOption   = {"Default"},
-    MultipleOptions = false,
-    Flag            = "SC_Skin",
-    Callback        = function(Value)
-        scSelectedSkin = type(Value) == "table" and Value[1] or Value
+SkinTab:CreateButton({
+    Name     = "Show Skins for Selected Weapon",
+    Callback = function()
+        local skins = scSkinOptions[scSelectedWeapon]
+        if skins then
+            Rayfield:Notify({ Title = scSelectedWeapon, Content = table.concat(skins, "\n"), Duration = 10 })
+        else
+            Rayfield:Notify({ Title = scSelectedWeapon, Content = "No skins listed.", Duration = 3 })
+        end
     end,
 })
 
-SkinTab:CreateButton({
-    Name     = "Apply Skin",
-    Callback = function()
+SkinTab:CreateInput({
+    Name                     = "Apply Skin (type name)",
+    PlaceholderText          = "e.g. AK-47, Karambit, Saber",
+    RemoveTextAfterFocusLost = false,
+    Flag                     = "SC_SkinInput",
+    Callback                 = function(Value)
+        if Value == "" then return end
         if not SC then
-            Rayfield:Notify({ Title = "Skin Changer", Content = "Load the skin module first.", Duration = 3 })
+            Rayfield:Notify({ Title = "Skin Changer", Content = "Load skin module first.", Duration = 3 })
             return
         end
-        if scSelectedSkin == "Default" then
+        if Value:lower() == "default" then
             SC.resetSkin(scSelectedWeapon)
-            Rayfield:Notify({ Title = "Skin Changer", Content = scSelectedWeapon .. " reset to default.", Duration = 3 })
+            Rayfield:Notify({ Title = "Skin Changer", Content = scSelectedWeapon .. " reset.", Duration = 3 })
         else
-            local success = SC.applySkin(scSelectedWeapon, scSelectedSkin)
-            Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. scSelectedSkin) or "Skin not found in ViewModels — try exact name via debug", Duration = 5 })
+            local success = SC.applySkin(scSelectedWeapon, Value)
+            Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. Value) or "Skin not found — equip weapon first & check exact name", Duration = 5 })
         end
     end,
 })
 
 SkinTab:CreateButton({
-    Name     = "Reset Skin (Default)",
+    Name     = "Reset Skin",
     Callback = function()
         if not SC then return end
         SC.resetSkin(scSelectedWeapon)
