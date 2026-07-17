@@ -203,45 +203,88 @@ local function listSkinsForWeapon(weaponName)
     return names
 end
 
--- ── Apply wrap (searches for wrap folder inside weapon) ──────
+-- ── Wrap color map (approximate tints for each wrap) ────────
+local wrapColors = {
+    ["Gold"]           = Color3.fromRGB(255, 200, 50),
+    ["Diamond"]        = Color3.fromRGB(180, 230, 255),
+    ["Midas Touch"]    = Color3.fromRGB(220, 180, 40),
+    ["Damascus"]       = Color3.fromRGB(80, 80, 90),
+    ["Black Damascus"] = Color3.fromRGB(30, 30, 35),
+    ["Neon Lights"]    = Color3.fromRGB(255, 80, 200),
+    ["Hologram Arena"] = Color3.fromRGB(100, 200, 255),
+    ["Sunset"]         = Color3.fromRGB(255, 140, 60),
+    ["Danger"]         = Color3.fromRGB(220, 30, 30),
+    ["Moonstone"]      = Color3.fromRGB(160, 160, 220),
+    ["Starfall"]       = Color3.fromRGB(80, 40, 140),
+    ["Black Glass"]    = Color3.fromRGB(20, 20, 25),
+    ["Watermelon"]     = Color3.fromRGB(80, 180, 80),
+    ["Reptile"]        = Color3.fromRGB(60, 120, 60),
+    ["Water"]          = Color3.fromRGB(80, 160, 220),
+    ["Nova"]           = Color3.fromRGB(200, 120, 255),
+    ["Supernova"]      = Color3.fromRGB(255, 200, 100),
+    ["Glass"]          = Color3.fromRGB(200, 230, 255),
+    ["Meat Wrap"]      = Color3.fromRGB(200, 80, 80),
+    ["Frosted"]        = Color3.fromRGB(220, 240, 255),
+    ["Slime Wrap"]     = Color3.fromRGB(100, 220, 80),
+    ["Clouds"]         = Color3.fromRGB(240, 240, 255),
+    ["Ladybug"]        = Color3.fromRGB(220, 40, 40),
+}
+
+-- ── Apply wrap as color tint ─────────────────────────────────
+local originalWrapColors = {}  -- weaponName -> {part -> originalColor}
+
 local function applyWrap(weaponName, wrapName)
     if not weaponName or not wrapName then return false end
-    -- Wraps are stored similarly to skins in the ViewModels tree
+
+    local tintColor = wrapColors[wrapName]
+    if not tintColor then
+        -- Default: white (no tint visible but won't error)
+        tintColor = Color3.fromRGB(200, 200, 200)
+    end
+
     local weaponModel
     for _, desc in ipairs(viewModels:GetDescendants()) do
-        if desc.Name == weaponName then
-            weaponModel = desc
-            break
-        end
+        if desc.Name == weaponName then weaponModel = desc break end
     end
     if not weaponModel then return false end
 
-    local wrapSource
-    for _, desc in ipairs(viewModels:GetDescendants()) do
-        if desc.Name == wrapName then
-            wrapSource = desc
-            break
+    -- Store original colors before first wrap
+    if not originalWrapColors[weaponName] then
+        originalWrapColors[weaponName] = {}
+        for _, part in ipairs(weaponModel:GetDescendants()) do
+            if part:IsA("BasePart") or part:IsA("MeshPart") then
+                originalWrapColors[weaponName][part] = part.Color
+            end
         end
     end
-    if not wrapSource then return false end
 
-    -- Apply wrap textures/meshes on top of existing weapon children
-    for _, child in ipairs(wrapSource:GetChildren()) do
-        local existing = weaponModel:FindFirstChild(child.Name)
-        if existing then
-            existing:Destroy()
+    -- Apply tint to all visual parts
+    for _, part in ipairs(weaponModel:GetDescendants()) do
+        if part:IsA("BasePart") or part:IsA("MeshPart") then
+            part.Color = tintColor
         end
-        child:Clone().Parent = weaponModel
     end
     return true
 end
 
+-- ── Reset wrap (restore original colors) ────────────────────
+local function resetWrap(weaponName)
+    if not weaponName then return end
+    local originals = originalWrapColors[weaponName]
+    if not originals then return end
+    for part, color in pairs(originals) do
+        pcall(function() part.Color = color end)
+    end
+    originalWrapColors[weaponName] = nil
+end
+
 -- ── Return public API ───────────────────────────────────────
 return {
-    skinOptions    = skinOptions,
-    applySkin      = applySkin,
-    resetSkin      = resetSkin,
-    applyWrap      = applyWrap,
-    listWeapons    = listWeapons,
+    skinOptions        = skinOptions,
+    applySkin          = applySkin,
+    resetSkin          = resetSkin,
+    applyWrap          = applyWrap,
+    resetWrap          = resetWrap,
+    listWeapons        = listWeapons,
     listSkinsForWeapon = listSkinsForWeapon,
 }
