@@ -1107,6 +1107,15 @@ SkinTab:CreateDropdown({
     Callback        = function(Value)
         scSelectedWeapon = type(Value) == "table" and Value[1] or Value
         scSelectedSkin = "Default"
+        -- Show available skins for the newly selected weapon
+        local skins = scSkinOptions[scSelectedWeapon]
+        if skins and #skins > 0 then
+            Rayfield:Notify({
+                Title   = scSelectedWeapon,
+                Content = "Skins: " .. table.concat(skins, ", "):sub(1, 180),
+                Duration = 7,
+            })
+        end
     end,
 })
 
@@ -1185,7 +1194,7 @@ SkinTab:CreateButton({
             return
         end
         local success = SC.applyWrap(scSelectedWeapon, scSelectedWrap)
-        Rayfield:Notify({ Title = "Wrap", Content = success and (scSelectedWeapon .. " → " .. scSelectedWrap) or "Wrap not found in ViewModels", Duration = 4 })
+        Rayfield:Notify({ Title = "Wrap", Content = success and (scSelectedWeapon .. " tinted with " .. scSelectedWrap) or "Weapon not found — equip it first", Duration = 4 })
     end,
 })
 
