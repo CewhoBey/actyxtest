@@ -1105,7 +1105,7 @@ SkinTab:CreateDropdown({
     MultipleOptions = false,
     Flag            = "SC_Weapon",
     Callback        = function(Value)
-        scSelectedWeapon = Value
+        scSelectedWeapon = type(Value) == "table" and Value[1] or Value
         scSelectedSkin = "Default"
     end,
 })
@@ -1117,7 +1117,7 @@ SkinTab:CreateDropdown({
     MultipleOptions = false,
     Flag            = "SC_Skin",
     Callback        = function(Value)
-        scSelectedSkin = Value
+        scSelectedSkin = type(Value) == "table" and Value[1] or Value
     end,
 })
 
@@ -1169,7 +1169,7 @@ SkinTab:CreateDropdown({
     MultipleOptions = false,
     Flag            = "SC_Wrap",
     Callback        = function(Value)
-        scSelectedWrap = Value
+        scSelectedWrap = type(Value) == "table" and Value[1] or Value
     end,
 })
 
