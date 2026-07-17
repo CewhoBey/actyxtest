@@ -1030,20 +1030,73 @@ end
 
 local SkinTab = Window:CreateTab("Skin Changer", 4483362458)
 
--- Sorted weapon list
-local scWeaponNames = {
-    "Assault Rifle","Battle Axe","Bow","Burst Rifle","Chainsaw","Crossbow","Daggers",
-    "Distortion","Energy Pistols","Energy Rifle","Exogun","Fists","Flamethrower",
-    "Flare Gun","Flashbang","Freeze Ray","Grenade","Grenade Launcher","Gunblade",
-    "Handgun","Katana","Knife","Medkit","Minigun","Molotov","Paintball Gun",
-    "Revolver","Riot Shield","RPG","Satchel","Scythe","Shotgun","Slingshot",
-    "Smoke Grenade","Sniper","Subspace Tripmine","Trowel","Uzi","War Horn",
-    "Warper","Warpstone",
+-- All skins data (mirrors changer1.lua skinOptions)
+local scSkinOptions = {
+    ["Assault Rifle"] = {"Default","AK-47","AUG","Tommy Gun","Phoenix Rifle","Boneclaw Rifle","AKEY-47"},
+    ["Bow"] = {"Default","Compound Bow","Raven Bow","Dream Bow","Bat Bow","Frostbite Bow","Key Bow","Glorious Bow"},
+    ["Burst Rifle"] = {"Default","Aqua Burst","Electro Rifle","FAMAS","Pine Burst","Spectral Burst"},
+    ["Chainsaw"] = {"Default","Blobsaw","Handsaws","Mega Drill","Buzzsaw"},
+    ["RPG"] = {"Default","Nuke Launcher","Spaceship Launcher","Squid Launcher","Pumpkin Launcher"},
+    ["Exogun"] = {"Default","Singularity","Exogourd","Ray Gun","Repulsor","Midnight Festive Exogun"},
+    ["Fists"] = {"Default","Boxing Gloves","Brass Knuckles","Fists of Hurt","Pumpkin Claws"},
+    ["Flamethrower"] = {"Default","Lamethrower","Pixel Flamethrower","Glitterthrower","Snowblower"},
+    ["Flare Gun"] = {"Default","Dynamite Gun","Firework Gun","Banana Flare"},
+    ["Freeze Ray"] = {"Default","Bubble Ray","Temporal Ray","Gum Ray"},
+    ["Grenade"] = {"Default","Water Balloon","Whoopee Cushion","Dynamite","Soul Grenade"},
+    ["Grenade Launcher"] = {"Default","Swashbuckler","Uranium Launcher","Gearnade Launcher"},
+    ["Handgun"] = {"Default","Blaster","Gumball Handgun","Pumpkin Handgun","Gingerbread Handgun"},
+    ["Katana"] = {"Default","Lightning Bolt","Saber","Stellar Katana","Pixel Katana","Keytana"},
+    ["Minigun"] = {"Default","Lasergun 3000","Pixel Minigun","Fighter Jet","Pumpkin Minigun"},
+    ["Paintball Gun"] = {"Default","Boba Gun","Slime Gun","Ketchup Gun"},
+    ["Revolver"] = {"Default","Sheriff","Desert Eagle","Peppergun","Boneclaw Revolver"},
+    ["Slingshot"] = {"Default","Goalpost","Stick","Harp","Boneshot"},
+    ["Uzi"] = {"Default","Electro Uzi","Water Uzi","Money Gun","Pine Uzi"},
+    ["Sniper"] = {"Default","Pixel Sniper","Hyper Sniper","Event Horizon","Eyething Sniper","Keyper"},
+    ["Knife"] = {"Default","Karambit","Chancla","Balisong","Machete","Keyrambit"},
+    ["Shotgun"] = {"Default","Balloon Shotgun","Cactus Shotgun","Broomstick Shotgun","Hyper Shotgun"},
+    ["Crossbow"] = {"Default","Pixel Crossbow","Violin Crossbow","Crossbone","Harpoon Crossbow"},
+    ["Daggers"] = {"Default","Aces","Paper Planes","Shurikens","Bat Daggers","Cookies"},
+    ["Distortion"] = {"Default","Plasma Distortion","Cyber Distortion","Magma Distortion"},
+    ["Energy Rifle"] = {"Default","Hacker Rifle","Void Rifle","Hydro Rifle"},
+    ["Energy Pistols"] = {"Default","Void Pistols","Hydro Pistols","Soul Pistols"},
+    ["Gunblade"] = {"Default","Hyper Gunblade","Gunsaw","Boneblade","Crude Gunblade"},
+    ["Battle Axe"] = {"Default","The Shred","Ban Axe","Cerulean Axe","Nordic Axe"},
+    ["Riot Shield"] = {"Default","Door","Masterpiece","Sled","Tombstone Shield"},
+    ["Scythe"] = {"Default","Scythe of Death","Sakura Scythe","Bat Scythe","Keythe"},
+    ["Trowel"] = {"Default","Plastic Shovel","Paintbrush","Snow Shovel"},
+    ["Medkit"] = {"Default","Sandwich","Medkitty"},
+    ["Molotov"] = {"Default","Torch","Lava Lamp"},
+    ["Satchel"] = {"Default","Notebook Satchel","Suspicious Gift","Advanced Satchel"},
+    ["Smoke Grenade"] = {"Default","Emoji Cloud","Balance","Hourglass"},
+    ["War Horn"] = {"Default","Trumpet","Air Horn","Megaphone","Mammoth Horn"},
+    ["Warpstone"] = {"Default","Cyber Warpstone","Electropunk Warpstone","Warpbone"},
+    ["Flashbang"] = {"Default","Pixel Flashbang"},
+    ["Warper"] = {"Default","Glitch Warper"},
+    ["Subspace Tripmine"] = {"Default","Spring","DIY Tripmine"},
 }
+
+local scWeaponNames = {}
+for k in pairs(scSkinOptions) do table.insert(scWeaponNames, k) end
+table.sort(scWeaponNames)
+
 local scSelectedWeapon = scWeaponNames[1]
+local scSelectedSkin   = "Default"
 
 SkinTab:CreateSection("Weapon Skins")
-SkinTab:CreateLabel("Swaps ViewModels client-side. Works on all executors. Only you see the change.", 4483362458, Color3.fromRGB(160, 160, 160), false)
+SkinTab:CreateLabel("Client-side only. Load module first, select weapon + skin, then apply.", 4483362458, Color3.fromRGB(160, 160, 160), false)
+
+SkinTab:CreateButton({
+    Name     = "Load Skin Module",
+    Callback = function()
+        loadSkinChanger(function(ok)
+            Rayfield:Notify({
+                Title   = "Skin Changer",
+                Content = ok and "Ready! Select weapon and skin then click Apply." or "Failed — ViewModels may not be accessible.",
+                Duration = 5,
+            })
+        end)
+    end,
+})
 
 SkinTab:CreateDropdown({
     Name            = "Select Weapon",
@@ -1053,46 +1106,35 @@ SkinTab:CreateDropdown({
     Flag            = "SC_Weapon",
     Callback        = function(Value)
         scSelectedWeapon = Value
+        scSelectedSkin = "Default"
+    end,
+})
+
+SkinTab:CreateDropdown({
+    Name            = "Select Skin",
+    Options         = scSkinOptions[scWeaponNames[1]],
+    CurrentOption   = {"Default"},
+    MultipleOptions = false,
+    Flag            = "SC_Skin",
+    Callback        = function(Value)
+        scSelectedSkin = Value
     end,
 })
 
 SkinTab:CreateButton({
-    Name     = "Show Available Skins",
+    Name     = "Apply Skin",
     Callback = function()
         if not SC then
             Rayfield:Notify({ Title = "Skin Changer", Content = "Load the skin module first.", Duration = 3 })
             return
         end
-        local skins = SC.skinOptions[scSelectedWeapon]
-        if not skins then
-            Rayfield:Notify({ Title = scSelectedWeapon, Content = "No custom skins available.", Duration = 3 })
-            return
+        if scSelectedSkin == "Default" then
+            SC.resetSkin(scSelectedWeapon)
+            Rayfield:Notify({ Title = "Skin Changer", Content = scSelectedWeapon .. " reset to default.", Duration = 3 })
+        else
+            local success = SC.applySkin(scSelectedWeapon, scSelectedSkin)
+            Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. scSelectedSkin) or "Skin not found in ViewModels — try exact name via debug", Duration = 5 })
         end
-        Rayfield:Notify({ Title = scSelectedWeapon .. " Skins", Content = table.concat(skins, ", "):sub(1, 200), Duration = 8 })
-    end,
-})
-
-SkinTab:CreateInput({
-    Name                     = "Skin Name (exact)",
-    PlaceholderText          = "e.g. AK-47, Karambit, Saber",
-    RemoveTextAfterFocusLost = false,
-    Flag                     = "SC_SkinInput",
-    Callback                 = function(Value)
-        if not SC then
-            -- auto-load on first use
-            Rayfield:Notify({ Title = "Skin Changer", Content = "Loading skin module...", Duration = 3 })
-            loadSkinChanger(function(ok)
-                if ok then
-                    local success = SC.applySkin(scSelectedWeapon, Value)
-                    Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. Value) or "Skin/weapon not found in ViewModels", Duration = 4 })
-                else
-                    Rayfield:Notify({ Title = "Skin Changer", Content = "Failed to load skin module.", Duration = 4 })
-                end
-            end)
-            return
-        end
-        local success = SC.applySkin(scSelectedWeapon, Value)
-        Rayfield:Notify({ Title = "Skin Changer", Content = success and (scSelectedWeapon .. " → " .. Value) or "Skin/weapon not found in ViewModels", Duration = 4 })
     end,
 })
 
@@ -1105,33 +1147,45 @@ SkinTab:CreateButton({
     end,
 })
 
-SkinTab:CreateButton({
-    Name     = "Load Skin Module",
-    Callback = function()
-        loadSkinChanger(function(ok)
-            Rayfield:Notify({
-                Title   = "Skin Changer",
-                Content = ok and "Module loaded! Select a weapon and enter a skin name." or "Failed to load — ViewModels may not be accessible.",
-                Duration = 5,
-            })
-        end)
+SkinTab:CreateSection("Wraps")
+
+local scWrapList = {
+    "None","Gold","Diamond","Midas Touch","Community Wrap","Blush Wrapping","Brain","Crystalliz",
+    "Damascus","Black Damascus",".exe wrap","Groove","Hollow Wrap","Hesper","Hyperdrive",
+    "Gingerbread","Neon Lights","Hologram Arena","Sunset","Pink Lemonade","Lovely Leopard",
+    "Dawn","Spectral","Danger","Termination","Moonstone","Starfall","Black Glass",
+    "Rift Wrap","Starblaze","Maganite","Watermelon","Reptile","Water","OranGG","A5","Cheese",
+    "Nova","Supernova","Glass","Mesh","Meat Wrap","Black Dark Wrap","Cardinal","Pixel Camo",
+    "Nauseite","Sensite","Urban Camo","Frosted","Slime Wrap","Carpet Wrap","Cross Wrap",
+    "Mainframe Wrap","Honeycomb Wrap","Black Opal Wrap","Patriot","PB&J Wrap","Digital Camo",
+    "Street Camo","Ocean Camo","Circuit","Clouds","Woven","Ladybug",
+}
+local scSelectedWrap = "None"
+
+SkinTab:CreateDropdown({
+    Name            = "Select Wrap",
+    Options         = scWrapList,
+    CurrentOption   = {"None"},
+    MultipleOptions = false,
+    Flag            = "SC_Wrap",
+    Callback        = function(Value)
+        scSelectedWrap = Value
     end,
 })
 
-SkinTab:CreateSection("Wraps")
-
-SkinTab:CreateInput({
-    Name                     = "Apply Wrap",
-    PlaceholderText          = "e.g. Gold, Damascus, Neon Lights",
-    RemoveTextAfterFocusLost = false,
-    Flag                     = "SC_WrapInput",
-    Callback                 = function(Value)
+SkinTab:CreateButton({
+    Name     = "Apply Wrap",
+    Callback = function()
         if not SC then
             Rayfield:Notify({ Title = "Skin Changer", Content = "Load the skin module first.", Duration = 3 })
             return
         end
-        local success = SC.applyWrap(scSelectedWeapon, Value)
-        Rayfield:Notify({ Title = "Wrap", Content = success and (scSelectedWeapon .. " wrap → " .. Value) or "Wrap not found in ViewModels", Duration = 4 })
+        if scSelectedWrap == "None" then
+            Rayfield:Notify({ Title = "Wrap", Content = "Select a wrap first.", Duration = 3 })
+            return
+        end
+        local success = SC.applyWrap(scSelectedWeapon, scSelectedWrap)
+        Rayfield:Notify({ Title = "Wrap", Content = success and (scSelectedWeapon .. " → " .. scSelectedWrap) or "Wrap not found in ViewModels", Duration = 4 })
     end,
 })
 
