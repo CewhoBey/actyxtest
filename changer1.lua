@@ -122,19 +122,24 @@ local function listWeapons()
     return names
 end
 
--- ── List all children of a specific weapon folder ───────────
+-- ── List all descendants of a specific weapon folder ────────
 local function listSkinsForWeapon(weaponName)
     local weapon
-    for _, child in ipairs(viewModels:GetChildren()) do
-        if child.Name == weaponName then
-            weapon = child
+    -- Search all descendants since weapon folders may be nested
+    for _, desc in ipairs(viewModels:GetDescendants()) do
+        if desc.Name == weaponName then
+            weapon = desc
             break
         end
     end
     if not weapon then return {} end
     local names = {}
-    for _, child in ipairs(weapon:GetChildren()) do
-        table.insert(names, child.Name)
+    -- List both children and descendants to find skin folders
+    for _, child in ipairs(weapon:GetDescendants()) do
+        -- Only list folders/models that could be skins (not deep mesh/texture children)
+        if child:IsA("Model") or child:IsA("Folder") or (child.Parent == weapon) then
+            table.insert(names, child.Name .. " [" .. child.ClassName .. "]")
+        end
     end
     table.sort(names)
     return names
