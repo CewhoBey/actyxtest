@@ -61,76 +61,12 @@ local skinOptions = {
     ["Subspace Tripmine"] = {"Spring", "DIY Tripmine"},
 }
 
--- ── Copy visual properties from source part to target part ──
-local function copyVisuals(src, tgt)
-    -- Copy mesh
-    pcall(function()
-        if src:IsA("MeshPart") and tgt:IsA("MeshPart") then
-            tgt.MeshId      = src.MeshId
-            tgt.TextureID   = src.TextureID
-            tgt.Color       = src.Color
-            tgt.Material    = src.Material
-            tgt.Size        = src.Size
-        elseif src:IsA("SpecialMesh") and tgt:FindFirstChildOfClass("SpecialMesh") then
-            local sm = tgt:FindFirstChildOfClass("SpecialMesh")
-            sm.MeshId       = src.MeshId
-            sm.TextureId    = src.TextureId
-            sm.Scale        = src.Scale
-        elseif src:IsA("BasePart") and tgt:IsA("BasePart") then
-            tgt.Color       = src.Color
-            tgt.Material    = src.Material
-        end
-    end)
-    -- Copy textures/decals
-    for _, child in ipairs(src:GetChildren()) do
-        if child:IsA("SpecialMesh") then
-            local existing = tgt:FindFirstChildOfClass("SpecialMesh")
-            if existing then
-                pcall(function()
-                    existing.MeshId   = child.MeshId
-                    existing.TextureId = child.TextureId
-                    existing.Scale    = child.Scale
-                end)
-            end
-        elseif child:IsA("Texture") or child:IsA("Decal") then
-            local existing = tgt:FindFirstChild(child.Name)
-            if existing then
-                pcall(function() existing.Texture = child.Texture end)
-            else
-                pcall(function() child:Clone().Parent = tgt end)
-            end
-        end
-    end
-end
-
--- ── Recursively apply visuals from skin tree to weapon tree ──
-local function applyVisualsRecursive(skinModel, weaponModel)
-    for _, skinChild in ipairs(skinModel:GetChildren()) do
-        local weaponChild = weaponModel:FindFirstChild(skinChild.Name)
-        if weaponChild then
-            copyVisuals(skinChild, weaponChild)
-            applyVisualsRecursive(skinChild, weaponChild)
-        end
-    end
-end
-
--- ── Stored original visuals for reset ───────────────────────
-local originalVisuals = {}
-
-local function captureOriginals(model, store)
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("MeshPart") or child:IsA("BasePart") then
-            store[child] = {
-                MeshId    = pcall(function() return child.MeshId end) and child.MeshId or nil,
-                TextureID = pcall(function() return child.TextureID end) and child.TextureID or nil,
-                Color     = child.Color,
-                Material  = child.Material,
-            }
-        end
-    end
-end
+-- ── Stored original children for reset ──────────────────────
+local originalChildren = {}
 
 -- ── Apply skin ──────────────────────────────────────────────
+-- Clones all children from skin source into weapon model.
+-- Stores originals so reset can restore them.
 local function applySkin(weaponName, skinName)
     if not weaponName or not skinName then return false end
 
@@ -152,31 +88,41 @@ local function applySkin(weaponName, skinName)
         return false
     end
 
-    -- Capture originals before first skin change
-    if not originalVisuals[weaponName] then
-        originalVisuals[weaponName] = {}
-        captureOriginals(weaponModel, originalVisuals[weaponName])
+    -- Store originals before first change
+    if not originalChildren[weaponName] then
+        originalChildren[weaponName] = {}
+        for _, child in ipairs(weaponModel:GetChildren()) do
+            table.insert(originalChildren[weaponName], child:Clone())
+        end
     end
 
-    -- Apply visuals recursively, preserving part names/hierarchy
-    applyVisualsRecursive(skinSource, weaponModel)
+    -- Swap children
+    weaponModel:ClearAllChildren()
+    for _, child in ipairs(skinSource:GetChildren()) do
+        child:Clone().Parent = weaponModel
+    end
+
     return true
 end
 
 -- ── Reset skin to default ───────────────────────────────────
 local function resetSkin(weaponName)
     if not weaponName then return end
-    local originals = originalVisuals[weaponName]
-    if not originals then return end
-    for part, data in pairs(originals) do
-        pcall(function()
-            if data.MeshId    then part.MeshId    = data.MeshId    end
-            if data.TextureID then part.TextureID = data.TextureID end
-            part.Color    = data.Color
-            part.Material = data.Material
-        end)
+    local originals = originalChildren[weaponName]
+
+    local weaponModel
+    for _, desc in ipairs(viewModels:GetDescendants()) do
+        if desc.Name == weaponName then weaponModel = desc break end
     end
-    originalVisuals[weaponName] = nil
+    if not weaponModel then return end
+
+    if originals then
+        weaponModel:ClearAllChildren()
+        for _, child in ipairs(originals) do
+            child:Clone().Parent = weaponModel
+        end
+        originalChildren[weaponName] = nil
+    end
 end
 
 -- ── List all top-level folders in ViewModels ────────────────
