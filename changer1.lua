@@ -61,12 +61,19 @@ local skinOptions = {
     ["Subspace Tripmine"] = {"Spring", "DIY Tripmine"},
 }
 
--- ── Stored original children for reset ──────────────────────
+-- ── Stored originals + active skin map + watchers ───────────
 local originalChildren = {}
+local activeSkins      = {}   -- weaponName -> skinName
+local skinWatchers     = {}   -- weaponName -> RBXScriptConnection
+
+local function doSwap(weaponModel, skinSource)
+    weaponModel:ClearAllChildren()
+    for _, child in ipairs(skinSource:GetChildren()) do
+        child:Clone().Parent = weaponModel
+    end
+end
 
 -- ── Apply skin ──────────────────────────────────────────────
--- Clones all children from skin source into weapon model.
--- Stores originals so reset can restore them.
 local function applySkin(weaponName, skinName)
     if not weaponName or not skinName then return false end
 
@@ -96,11 +103,33 @@ local function applySkin(weaponName, skinName)
         end
     end
 
-    -- Swap children
-    weaponModel:ClearAllChildren()
-    for _, child in ipairs(skinSource:GetChildren()) do
-        child:Clone().Parent = weaponModel
+    activeSkins[weaponName] = skinName
+
+    -- Do initial swap
+    doSwap(weaponModel, skinSource)
+
+    -- Watch for Rivals re-adding children and re-apply
+    if skinWatchers[weaponName] then
+        skinWatchers[weaponName]:Disconnect()
     end
+    local debounce = false
+    skinWatchers[weaponName] = weaponModel.ChildAdded:Connect(function(child)
+        if debounce then return end
+        -- If Rivals re-added default children, re-apply skin
+        local currentSkin = activeSkins[weaponName]
+        if not currentSkin then return end
+        local src
+        for _, desc in ipairs(viewModels:GetDescendants()) do
+            if desc.Name == currentSkin then src = desc break end
+        end
+        if src then
+            debounce = true
+            task.defer(function()
+                doSwap(weaponModel, src)
+                debounce = false
+            end)
+        end
+    end)
 
     return true
 end
@@ -108,8 +137,15 @@ end
 -- ── Reset skin to default ───────────────────────────────────
 local function resetSkin(weaponName)
     if not weaponName then return end
-    local originals = originalChildren[weaponName]
 
+    -- Stop watcher and clear active skin first
+    activeSkins[weaponName] = nil
+    if skinWatchers[weaponName] then
+        skinWatchers[weaponName]:Disconnect()
+        skinWatchers[weaponName] = nil
+    end
+
+    local originals = originalChildren[weaponName]
     local weaponModel
     for _, desc in ipairs(viewModels:GetDescendants()) do
         if desc.Name == weaponName then weaponModel = desc break end
