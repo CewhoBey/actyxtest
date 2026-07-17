@@ -66,10 +66,19 @@ local originalChildren = {}
 local activeSkins      = {}   -- weaponName -> skinName
 local skinWatchers     = {}   -- weaponName -> RBXScriptConnection
 
+-- Parts that drive animations — never swap these
+local ANIM_PARTS = {Bolt=true, Magazine=true, ReloadMagazine=true, _charm_attachment_model=true}
+
 local function doSwap(weaponModel, skinSource)
-    weaponModel:ClearAllChildren()
-    for _, child in ipairs(skinSource:GetChildren()) do
-        child:Clone().Parent = weaponModel
+    -- Only swap Body and Extra sub-models (visual hull), preserve animation parts
+    for _, srcChild in ipairs(skinSource:GetChildren()) do
+        if not ANIM_PARTS[srcChild.Name] then
+            local existing = weaponModel:FindFirstChild(srcChild.Name)
+            if existing then
+                existing:Destroy()
+            end
+            srcChild:Clone().Parent = weaponModel
+        end
     end
 end
 
@@ -95,27 +104,26 @@ local function applySkin(weaponName, skinName)
         return false
     end
 
-    -- Store originals before first change
+    -- Store originals (visual parts only) before first change
     if not originalChildren[weaponName] then
         originalChildren[weaponName] = {}
         for _, child in ipairs(weaponModel:GetChildren()) do
-            table.insert(originalChildren[weaponName], child:Clone())
+            if not ANIM_PARTS[child.Name] then
+                originalChildren[weaponName][child.Name] = child:Clone()
+            end
         end
     end
 
     activeSkins[weaponName] = skinName
-
-    -- Do initial swap
     doSwap(weaponModel, skinSource)
 
-    -- Watch for Rivals re-adding children and re-apply
+    -- Re-apply if Rivals rebuilds the visual parts
     if skinWatchers[weaponName] then
         skinWatchers[weaponName]:Disconnect()
     end
     local debounce = false
     skinWatchers[weaponName] = weaponModel.ChildAdded:Connect(function(child)
-        if debounce then return end
-        -- If Rivals re-added default children, re-apply skin
+        if debounce or ANIM_PARTS[child.Name] then return end
         local currentSkin = activeSkins[weaponName]
         if not currentSkin then return end
         local src
@@ -138,7 +146,6 @@ end
 local function resetSkin(weaponName)
     if not weaponName then return end
 
-    -- Stop watcher and clear active skin first
     activeSkins[weaponName] = nil
     if skinWatchers[weaponName] then
         skinWatchers[weaponName]:Disconnect()
@@ -146,19 +153,21 @@ local function resetSkin(weaponName)
     end
 
     local originals = originalChildren[weaponName]
+    if not originals then return end
+
     local weaponModel
     for _, desc in ipairs(viewModels:GetDescendants()) do
         if desc.Name == weaponName then weaponModel = desc break end
     end
     if not weaponModel then return end
 
-    if originals then
-        weaponModel:ClearAllChildren()
-        for _, child in ipairs(originals) do
-            child:Clone().Parent = weaponModel
-        end
-        originalChildren[weaponName] = nil
+    -- Restore only the visual parts we swapped
+    for partName, originalClone in pairs(originals) do
+        local existing = weaponModel:FindFirstChild(partName)
+        if existing then existing:Destroy() end
+        originalClone:Clone().Parent = weaponModel
     end
+    originalChildren[weaponName] = nil
 end
 
 -- ── List all top-level folders in ViewModels ────────────────
